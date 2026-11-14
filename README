@@ -1,1 +1,13 @@
 # dlemo-mc
+
+## What is `dlemo-mc`?
+
+**`dlemo-mc`** is an independent implementation of the **Minecraft (Java Edition)** client built from scratch using the **Go (Golang)** programming language.
+
+The project aims to explore the game's internal architecture, performance, and graphical capabilities using modern technologies.
+
+### Key Features
+
+* **Written in Go:** Leverages Go's simplicity, concurrency, and speed to handle client logic and networking.
+* **Rendered with WGPU:** Uses **WGPU** (the Rust implementation of the WebGPU API, adapted via Go bindings) to achieve hardware-accelerated, modern, cross-platform graphics performance (Vulkan, DirectX 12, Metal, or OpenGL depending on the OS).
+* **Current Development Status:** Currently in its earliest initialization phase. Running the project **only displays a black window for now**, confirming that the WGPU graphics context and window have been properly initialized and are ready to begin rendering geometry.

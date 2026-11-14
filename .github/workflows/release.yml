@@ -1,0 +1,42 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Create Release and Build Binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Build for Windows (EXE)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o dist/dlemo-mc-windows-amd64.exe cmd/client/main.go 
+
+      - name: Build for Linux
+        env:
+          GOOS: linux
+          GOARCH: amd64
+        run: go build -o dist/dlemo-mc-linux-amd64 cmd/client/main.go 
+
+      - name: Create GitHub Release and upload assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/dlemo-mc-windows-amd64.exe
+            dist/dlemo-mc-linux-amd64
+          generate_release_notes: true
