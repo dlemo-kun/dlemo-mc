@@ -1,0 +1,20 @@
+minecraft_go_edition/
+├── assets/
+├── cmd/
+│   └── client/
+│       └── main.go
+├── internal/
+│   ├── assets/
+│   ├── audio/
+│   ├── config/
+│   ├── entity/
+│   ├── game/
+│   ├── gui/
+│   ├── network/
+│   ├── render/
+│   └── world/
+├── pkg/
+├── .gitignore
+├── go.mod
+├── go.sum
+└── tree.txt
