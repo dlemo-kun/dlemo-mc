@@ -7,7 +7,28 @@ import (
 	pk "github.com/Tnze/go-mc/net/packet"
 )
 
-/* Ping:
+/*
+Ping:
+
+EN: Check the connection to the server and return a JSON.
+
+	Input:
+		host string // localhost
+		port int    // 25565
+
+	Output:
+		string // {"description":"nw111026","players":{"max":20,"online":0},"version":{"name":"26.3","protocol":777}}
+		error  // <nil>
+
+ES: Compruebe la conexión al servidor y devuelva un JSON.
+
+	Input:
+		host string // localhost
+		port int    // 25565
+
+	Output:
+		string // {"description":"nm101126","players":{"max":20,"online":0},"version":{"name":"26.3","protocol":777}}
+		error  // <nil>
 */
 func Ping(host string, port int) (string, error) {
 	conn, err := mcnet.DialMC(fmt.Sprintf("%s:%d", host, port))

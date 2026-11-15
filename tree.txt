@@ -8,14 +8,17 @@ dlemo-mc/
 ├── internal/
 │   ├── app/
 │   │   └── app.go
+│   ├── client/
+│   │   └── client.go
 │   ├── net/
+│   │   ├── login.go
 │   │   └── ping.go
 │   └── render/
 │       └── renderer.go
 ├── .gitignore
 ├── LICENSE
 ├── Makefile
-├── README
+├── README.md
 ├── client.exe
 ├── go.mod
 ├── go.sum
