@@ -1,20 +1,23 @@
-minecraft_go_edition/
-├── assets/
+dlemo-mc/
+├── .github/
+│   └── workflows/
+│       └── release.yml
 ├── cmd/
 │   └── client/
 │       └── main.go
 ├── internal/
-│   ├── assets/
-│   ├── audio/
-│   ├── config/
-│   ├── entity/
-│   ├── game/
-│   ├── gui/
-│   ├── network/
-│   ├── render/
-│   └── world/
-├── pkg/
+│   ├── app/
+│   │   └── app.go
+│   ├── net/
+│   │   └── ping.go
+│   └── render/
+│       └── renderer.go
 ├── .gitignore
+├── LICENSE
+├── Makefile
+├── README
+├── client.exe
 ├── go.mod
 ├── go.sum
+├── main.exe
 └── tree.txt

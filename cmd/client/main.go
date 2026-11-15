@@ -1,14 +1,13 @@
 package main
 
 import (
-	"github.com/gogpu/gogpu"
+	"log"
+
+	"github.com/dlemo-kun/dlemo-mc/internal/app"
 )
 
 func main() {
-	app := gogpu.NewApp(gogpu.DefaultConfig().
-		WithTitle("dlemo-mc").
-		WithSize(800, 600).
-		WithGraphicsAPI(gogpu.GraphicsAPIVulkan))
-
-	app.Run()
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
 }

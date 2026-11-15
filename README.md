@@ -9,5 +9,5 @@ The project aims to explore the game's internal architecture, performance, and g
 ### Key Features
 
 * **Written in Go:** Leverages Go's simplicity, concurrency, and speed to handle client logic and networking.
-* **Rendered with WGPU:** Uses **WGPU** (the Rust implementation of the WebGPU API, adapted via Go bindings) to achieve hardware-accelerated, modern, cross-platform graphics performance (Vulkan, DirectX 12, Metal, or OpenGL depending on the OS).
+* **Rendered with WGPU:** Uses **WGPU** (the Rust implementation of the WebGPU API, adapted via Go bindings) to achieve hardware-accelerated, modern, cross-platform graphics performance (Vulkan, DirectX 12, or OpenGL depending on the OS).
 * **Current Development Status:** Currently in its earliest initialization phase. Running the project **only displays a black window for now**, confirming that the WGPU graphics context and window have been properly initialized and are ready to begin rendering geometry.
