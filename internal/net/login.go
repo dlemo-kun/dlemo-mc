@@ -10,82 +10,39 @@ import (
 	"github.com/google/uuid"
 )
 
-/*
-LoginOptions:
-
-EN: Contains the parameters needed to connect to a server.
-
-	Host            string // localhost
-	Port            int    // 25565
-	ProtocolVersion int32  // 777 (26.3)
-	Username        string // Player
-
-ES: Contiene los parámetros necesarios para conectarse a un servidor.
-
-	Host            string // localhost
-	Port            int    // 25565
-	ProtocolVersion int32  // 777 (26.3)
-	Username        string // Jugador
-*/
+// LoginOptions holds the connection parameters required to log in to a Minecraft server.
 type LoginOptions struct {
-	Host            string
-	Port            int
-	ProtocolVersion int32
-	Username        string
+	Host            string // Server hostname or IP (e.g. "localhost")
+	Port            int    // Server port (e.g. 25565)
+	ProtocolVersion int32  // Minecraft protocol version (e.g. 777 for 26.3)
+	Username        string // Player username (e.g. "Player")
 }
 
-/*
-LoginResult:
-
-EN: Returns the active connection and the data confirmed by the server.
-
-	Conn     *mcnet.Conn // &{0x6e7e3682018 0x6e7e3682018 0x6e7e3682018 256}
-	UUID     uuid.UUID   // a01e3843-e521-3998-958a-f459800e4d11
-	Username string      // Player
-
-ES: Devuelve la conexión activa y los datos confirmados por el servidor.
-
-	Conn     *mcnet.Conn // &{0x3b7365d82018 0x3b7365d82018 0x3b7365d82018 256}
-	UUID     uuid.UUID   // e3b74ba8-f059-3c5e-92c9-e84f10defbf6
-	Username string      // Jugador
-*/
+// LoginResult holds the active server connection and the player identity
+// confirmed by the server after a successful login.
 type LoginResult struct {
-	Conn     *mcnet.Conn
-	UUID     uuid.UUID
-	Username string
+	Conn     *mcnet.Conn // Active connection ready for the Configuration/Play state
+	UUID     uuid.UUID   // Confirmed player UUID (e.g. a01e3843-e521-3998-958a-f459800e4d11)
+	Username string      // Confirmed player username (e.g. "Player")
 }
 
-/*
-Login:
-
-EN: It performs the Handshake and Login phase (only in offline mode) against a Minecraft server.
-
-	Input:
-		opts LoginOptions // opts.Host            localhost
-						  // opts.Port            25565
-						  // opts.ProtocolVersion 777
-						  // opts.Username        Player
-
-	Output:
-		*LoginResult // res.Conn     &{0x6e7e3682018 0x6e7e3682018 0x6e7e3682018 256}
-		             // res.UUID     a01e3843-e521-3998-958a-f459800e4d11
-		             // res.Username Player
-		error        // <nil>
-
-ES: Realiza el Handshake y la fase de Login (only en modo offline) contra un servidor Minecraft.
-
-	Input:
-		opts LoginOptions // opts.Host            localhost
-						  // opts.Port            25565
-						  // opts.ProtocolVersion 777
-						  // opts.Username        Jugador
-
-	Output:
-		*LoginResult // res.Conn     &{0x3b7365d82018 0x3b7365d82018 0x3b7365d82018 256}
-		             // res.UUID     e3b74ba8-f059-3c5e-92c9-e84f10defbf6
-		             // res.Username Jugador
-		error        // <nil>
-*/
+// Login performs the Handshake and Login phase (offline mode only) against a
+// Minecraft server and returns an active connection ready for the Configuration state.
+//
+// Example:
+//
+//	res, err := Login(LoginOptions{
+//		Host:            "localhost",
+//		Port:            25565,
+//		ProtocolVersion: 777,
+//		Username:        "Player",
+//	})
+//	if err != nil {
+//		return err
+//	}
+//	defer res.Conn.Close()
+//	// res.UUID: a01e3843-e521-3998-958a-f459800e4d11
+//	// res.Username: "Player"
 func Login(opts LoginOptions) (*LoginResult, error) {
 	addr := fmt.Sprintf("%s:%d", opts.Host, opts.Port)
 	conn, err := mcnet.DialMC(addr)
@@ -164,7 +121,7 @@ func Login(opts LoginOptions) (*LoginResult, error) {
 			}
 			conn.SetThreshold(int(threshold))
 
-		case 0x04: // Login Plugin Request (Used by the Velocity proxy (I don't know what it's about))
+		case 0x04: // Login Plugin Request (used by proxies like Velocity to exchange custom data during login)
 			var messageID pk.VarInt
 			if err := p.Scan(&messageID); err != nil {
 				return nil, fmt.Errorf("parse plugin request: %w", err)

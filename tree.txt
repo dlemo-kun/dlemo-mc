@@ -2,6 +2,7 @@ dlemo-mc/
 ├── .github/
 │   └── workflows/
 │       └── release.yml
+├── .vscode/
 ├── cmd/
 │   └── client/
 │       └── main.go
@@ -12,7 +13,9 @@ dlemo-mc/
 │   │   └── client.go
 │   ├── net/
 │   │   ├── login.go
-│   │   └── ping.go
+│   │   ├── login_test.go
+│   │   ├── ping.go
+│   │   └── ping_test.go
 │   └── render/
 │       └── renderer.go
 ├── .gitignore
@@ -22,5 +25,4 @@ dlemo-mc/
 ├── client.exe
 ├── go.mod
 ├── go.sum
-├── main.exe
 └── tree.txt
