@@ -70,11 +70,11 @@ func NewTitleMenu(actions TitleMenuActions) *TitleMenu {
 	m.loadFonts()
 
 	m.TitleButtons = []*TextButton{
-		{Label: "Un solo jugador", OnClick: actions.OnSingleplayer},
-		{Label: "Multijugador", OnClick: actions.OnMultiplayer},
+		{Label: "Singleplayer", OnClick: actions.OnSingleplayer},
+		{Label: "Multiplayer", OnClick: actions.OnMultiplayer},
 		{Label: "Realms", OnClick: actions.OnRealms},
-		{Label: "Opciones", OnClick: actions.OnOptions},
-		{Label: "Salir", OnClick: actions.OnQuit},
+		{Label: "Options", OnClick: actions.OnOptions},
+		{Label: "Quit", OnClick: actions.OnQuit},
 	}
 
 	atlas, rects := buildIconAtlas([]string{
@@ -85,9 +85,9 @@ func NewTitleMenu(actions TitleMenuActions) *TitleMenu {
 	m.iconAtlas = atlas
 
 	m.IconButtons = []*IconButton{
-		{Tooltip: "Idioma", SrcRect: rects[0], OnClick: actions.OnLanguage},
-		{Tooltip: "Amigos", SrcRect: rects[1], OnClick: actions.OnFriends},
-		{Tooltip: "Accesibilidad", SrcRect: rects[2], OnClick: actions.OnAccessibility},
+		{Tooltip: "Language", SrcRect: rects[0], OnClick: actions.OnLanguage},
+		{Tooltip: "Friends", SrcRect: rects[1], OnClick: actions.OnFriends},
+		{Tooltip: "Accessibility", SrcRect: rects[2], OnClick: actions.OnAccessibility},
 	}
 
 	return m
