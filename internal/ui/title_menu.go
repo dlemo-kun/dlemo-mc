@@ -112,7 +112,7 @@ func (m *TitleMenu) SetViewport(w, h float64) {
 		hboxGap   = 10.0
 	)
 
-	// Bottom-left VBox (Un solo jugador .. Salir)
+	// Bottom-left VBox (Singleplayer .. Quit)
 	totalVBoxH := float64(len(m.TitleButtons))*btnHeight + float64(len(m.TitleButtons)-1)*vboxGap
 	startY := h - marginY - totalVBoxH
 	for i, btn := range m.TitleButtons {
@@ -122,7 +122,7 @@ func (m *TitleMenu) SetViewport(w, h float64) {
 		btn.H = btnHeight
 	}
 
-	// Bottom-right HBox (Idioma, Amigos, Accesibilidad)
+	// Bottom-right HBox (Language, Friends, Accessibility)
 	totalHBoxW := float64(len(m.IconButtons))*iconSize + float64(len(m.IconButtons)-1)*hboxGap
 	startX := w - marginX - totalHBoxW
 	iconY := h - marginY - iconSize
@@ -398,8 +398,6 @@ func defaultSystemFont() string {
 	switch runtime.GOOS {
 	case "windows":
 		return `C:\Windows\Fonts\segoeui.ttf`
-	case "darwin":
-		return "/System/Library/Fonts/Supplemental/Arial.ttf"
 	default:
 		return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 	}

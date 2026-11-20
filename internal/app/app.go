@@ -47,10 +47,10 @@ func Run() error {
 		OnSingleplayer:  connectLocal,
 		OnMultiplayer:   connectLocal,
 		OnRealms:        func() { log.Println("UI: Realms clicked") },
-		OnOptions:       func() { log.Println("UI: Opciones clicked") },
-		OnLanguage:      func() { log.Println("UI: Idioma clicked") },
-		OnFriends:       func() { log.Println("UI: Amigos clicked") },
-		OnAccessibility: func() { log.Println("UI: Accesibilidad clicked") },
+		OnOptions:       func() { log.Println("UI: Options clicked") },
+		OnLanguage:      func() { log.Println("UI: Language clicked") },
+		OnFriends:       func() { log.Println("UI: Friends clicked") },
+		OnAccessibility: func() { log.Println("UI: Accessibility clicked") },
 		OnQuit: func() {
 			a.Quit()
 		},
