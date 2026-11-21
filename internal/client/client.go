@@ -25,6 +25,14 @@ func (c *safeConn) writePacket(p pk.Packet) error {
 // Connect logs in to a Minecraft server, completes the Configuration state,
 // and runs the Play packet loop until disconnected.
 func Connect(host string, port int, username string) error {
+	pj, err := mcnet.Ping(host, port)
+
+	if err != nil {
+		return fmt.Errorf("ping failed: %w", err)
+	}
+
+	log.Printf("Ping succeeded: JSON=%s", pj)
+
 	res, err := mcnet.Login(mcnet.LoginOptions{
 		Host:            host,
 		Port:            port,

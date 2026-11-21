@@ -6,8 +6,10 @@ import (
 	_ "image/png"
 	"log"
 	"os"
-	"runtime"
+	"path/filepath"
 
+	"github.com/dlemo-kun/dlemo-mc/internal/config"
+	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/text"
 )
@@ -19,6 +21,7 @@ type TextButton struct {
 	W, H    float64
 	Hovered bool
 	HoverT  float64
+	Key     string
 	OnClick func()
 }
 
@@ -30,6 +33,7 @@ type IconButton struct {
 	Size    float64
 	Hovered bool
 	HoverT  float64
+	Key     string
 	OnClick func()
 }
 
@@ -41,13 +45,14 @@ type TitleMenu struct {
 	TitleButtons []*TextButton
 	IconButtons  []*IconButton
 
-	titleFont *text.FontSource
-	uiFont    *text.FontSource
+	titleFont *FontStack
+	uiFont    *FontStack
 	titleFace text.Face
 	subFace   text.Face
 	btnFace   text.Face
 	tipFace   text.Face
 
+	tr        *i18n.Manager
 	iconAtlas *gg.ImageBuf
 	dirty     bool
 }
@@ -65,29 +70,34 @@ type TitleMenuActions struct {
 }
 
 // NewTitleMenu initializes the title menu fonts, custom icon atlas, and button layout.
-func NewTitleMenu(actions TitleMenuActions) *TitleMenu {
-	m := &TitleMenu{dirty: true}
+func NewTitleMenu(tr *i18n.Manager, actions TitleMenuActions) *TitleMenu {
+	m := &TitleMenu{tr: tr, dirty: true}
 	m.loadFonts()
 
 	m.TitleButtons = []*TextButton{
-		{Label: "Singleplayer", OnClick: actions.OnSingleplayer},
-		{Label: "Multiplayer", OnClick: actions.OnMultiplayer},
-		{Label: "Realms", OnClick: actions.OnRealms},
-		{Label: "Options", OnClick: actions.OnOptions},
-		{Label: "Quit", OnClick: actions.OnQuit},
+		{Key: "menu.singleplayer", Label: "Singleplayer", OnClick: actions.OnSingleplayer},
+		{Key: "menu.multiplayer", Label: "Multiplayer", OnClick: actions.OnMultiplayer},
+		{Key: "menu.online", Label: "Realms", OnClick: actions.OnRealms},
+		{Key: "options.title", Label: "Options", OnClick: actions.OnOptions},
+		{Key: "menu.quit", Label: "Quit", OnClick: actions.OnQuit},
+	}
+
+	iconsDir := ""
+	if base, err := config.Dir(); err == nil {
+		iconsDir = filepath.Join(base, "assets/icons/ui")
 	}
 
 	atlas, rects := buildIconAtlas([]string{
-		"assets/icons/ui/language.png",
-		"assets/icons/ui/friends.png",
-		"assets/icons/ui/accessibility.png",
+		iconsDir + "/language.png",
+		iconsDir + "/friends.png",
+		iconsDir + "/accessibility.png",
 	})
 	m.iconAtlas = atlas
 
 	m.IconButtons = []*IconButton{
-		{Tooltip: "Language", SrcRect: rects[0], OnClick: actions.OnLanguage},
-		{Tooltip: "Friends", SrcRect: rects[1], OnClick: actions.OnFriends},
-		{Tooltip: "Accessibility", SrcRect: rects[2], OnClick: actions.OnAccessibility},
+		{Key: "options.language.tooltip", Tooltip: "Language", SrcRect: rects[0], OnClick: actions.OnLanguage},
+		{Key: "gui.friends.open.tooltip", Tooltip: "Friends", SrcRect: rects[1], OnClick: actions.OnFriends},
+		{Key: "options.accessibility.tooltip", Tooltip: "Accessibility", SrcRect: rects[2], OnClick: actions.OnAccessibility},
 	}
 
 	return m
@@ -226,6 +236,13 @@ func (m *TitleMenu) Draw(cc *gg.Context) {
 	m.drawHBoxIconButtons(cc)
 }
 
+func (m *TitleMenu) resolveText(key, fallback string) string {
+	if m.tr != nil && key != "" {
+		return m.tr.T(key)
+	}
+	return fallback
+}
+
 func (m *TitleMenu) drawHeader(cc *gg.Context) {
 	const x = 44.0
 	const y = 78.0
@@ -278,7 +295,7 @@ func (m *TitleMenu) drawVBoxButtons(cc *gg.Context) {
 		textX := btn.X + 18 + t*4
 		textY := btn.Y + btn.H/2
 		cc.SetRGBA(0.95, 0.96, 0.99, lerp(0.86, 1.0, t))
-		cc.DrawStringAnchored(btn.Label, textX, textY, 0.0, 0.5)
+		cc.DrawStringAnchored(m.resolveText(btn.Key, btn.Label), textX, textY, 0.0, 0.5)
 	}
 }
 
@@ -317,7 +334,7 @@ func (m *TitleMenu) drawHBoxIconButtons(cc *gg.Context) {
 		}
 
 		if t > 0.05 {
-			m.drawTooltip(cc, btn.Tooltip, btn.X+btn.Size/2, btn.Y-10, t)
+			m.drawTooltip(cc, m.resolveText(btn.Key, btn.Tooltip), btn.X+btn.Size/2, btn.Y-10, t)
 		}
 	}
 }
@@ -345,61 +362,22 @@ func (m *TitleMenu) drawTooltip(cc *gg.Context, label string, cx, bottomY, alpha
 	cc.DrawStringAnchored(label, cx, y+h/2, 0.5, 0.5)
 }
 
-// Close releases font sources held by the menu.
-func (m *TitleMenu) Close() {
-	if m.titleFont != nil {
-		_ = m.titleFont.Close()
-	}
-	if m.uiFont != nil && m.uiFont != m.titleFont {
-		_ = m.uiFont.Close()
-	}
-}
+// Close satisfies the Screen interface. Shared fonts stay cached until CloseSharedFonts.
+func (m *TitleMenu) Close() {}
 
 func (m *TitleMenu) loadFonts() {
-	m.titleFont = loadFirstAvailableFont(
-		"assets/fonts/Roboto-Black.ttf",
-		"assets/fonts/Roboto-Regular.ttf",
-		defaultSystemFont(),
-	)
-	m.uiFont = loadFirstAvailableFont(
-		"assets/fonts/Roboto-Regular.ttf",
-		defaultSystemFont(),
-	)
+	titleFont, uiFont := loadFont()
+
+	m.titleFont = titleFont
+	m.uiFont = uiFont
 
 	if m.titleFont != nil {
-		m.titleFace = m.titleFont.Face(44)
+		m.titleFace = m.titleFont.Face(48)
 	}
 	if m.uiFont != nil {
-		m.subFace = m.uiFont.Face(13)
-		m.btnFace = m.uiFont.Face(15)
+		m.subFace = m.uiFont.Face(24)
+		m.btnFace = m.uiFont.Face(16)
 		m.tipFace = m.uiFont.Face(12)
-	}
-}
-
-func loadFirstAvailableFont(paths ...string) *text.FontSource {
-	for _, p := range paths {
-		if p == "" {
-			continue
-		}
-		if _, err := os.Stat(p); err != nil {
-			continue
-		}
-		src, err := text.NewFontSourceFromFile(p)
-		if err != nil {
-			log.Printf("ui: failed to load font %s: %v", p, err)
-			continue
-		}
-		return src
-	}
-	return nil
-}
-
-func defaultSystemFont() string {
-	switch runtime.GOOS {
-	case "windows":
-		return `C:\Windows\Fonts\segoeui.ttf`
-	default:
-		return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 	}
 }
 

@@ -3,6 +3,26 @@ dlemo-mc/
 │   └── workflows/
 │       └── release.yml
 ├── .vscode/
+├── assets/
+│   ├── fonts/
+│   │   ├── Roboto-Black.ttf
+│   │   ├── Roboto-BlackItalic.ttf
+│   │   ├── Roboto-Bold.ttf
+│   │   ├── Roboto-BoldItalic.ttf
+│   │   ├── Roboto-Italic.ttf
+│   │   ├── Roboto-Light.ttf
+│   │   ├── Roboto-LightItalic.ttf
+│   │   ├── Roboto-Medium.ttf
+│   │   ├── Roboto-MediumItalic.ttf
+│   │   ├── Roboto-Regular.ttf
+│   │   ├── Roboto-Thin.ttf
+│   │   └── Roboto-ThinItalic.ttf
+│   └── icons/
+│       └── ui/
+│           ├── accessibility.png
+│           ├── friends.png
+│           ├── icon.py
+│           └── language.png
 ├── cmd/
 │   └── client/
 │       └── main.go
@@ -17,16 +37,15 @@ dlemo-mc/
 │   │   ├── login_test.go
 │   │   ├── ping.go
 │   │   └── ping_test.go
-│   └── render/
-│       └── renderer.go
+│   ├── render/
+│   │   └── renderer.go
+│   └── ui/
+│       └── title_menu.go
 ├── pkg/
-│   ├── gpu/
-│   └── mathx/
 ├── .gitignore
 ├── LICENSE
 ├── Makefile
 ├── README.md
-├── client.exe
 ├── go.mod
 ├── go.sum
 └── tree.txt

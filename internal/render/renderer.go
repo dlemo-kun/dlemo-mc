@@ -21,10 +21,11 @@ func New() *Renderer {
 	return &Renderer{}
 }
 
-// RenderTitleMenu draws the title menu overlay onto the current swapchain view,
-// re-rasterizing the 2D canvas only when resized or marked dirty.
-// RenderTitleMenu draws the title menu overlay onto the current swapchain view.
-func (r *Renderer) RenderTitleMenu(dc *gogpu.Context, provider gpucontext.DeviceProvider, menu *ui.TitleMenu) {
+// RenderScreen draws any active ui.Screen overlay onto the current swapchain view.
+func (r *Renderer) RenderScreen(dc *gogpu.Context, provider gpucontext.DeviceProvider, screen ui.Screen) {
+	if screen == nil {
+		return
+	}
 	w, h := dc.Width(), dc.Height()
 	if w <= 0 || h <= 0 || provider == nil {
 		return
@@ -47,12 +48,11 @@ func (r *Renderer) RenderTitleMenu(dc *gogpu.Context, provider gpucontext.Device
 		}
 	}
 
-	menu.SetViewport(float64(w), float64(h))
+	screen.SetViewport(float64(w), float64(h))
 
 	r.canvas.Draw(func(cc *gg.Context) {
-		// Clear with transparent alpha so the 3D background beneath stays visible.
 		cc.Clear()
-		menu.Draw(cc)
+		screen.Draw(cc)
 	})
 
 	if err := r.canvas.Render(dc.RenderTarget()); err != nil {
