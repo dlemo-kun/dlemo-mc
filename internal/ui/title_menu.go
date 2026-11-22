@@ -446,3 +446,8 @@ func approach(cur float64, target bool, delta float64) float64 {
 func lerp(a, b, t float64) float64 {
 	return a + (b-a)*t
 }
+
+// MarkDirty forces a complete redraw after activation or a viewport change.
+func (m *TitleMenu) MarkDirty() {
+	m.dirty = true
+}

@@ -48,8 +48,9 @@ func (fs *FontStack) Face(size float64) text.Face {
 	return mf
 }
 
-// Close libera todas las fuentes cargadas en el stack.
-func (fs *FontStack) Close() error {
+// closeAll libera todas las fuentes cargadas en el stack.
+// Es privado porque los stacks son recursos compartidos entre todas las pantallas.
+func (fs *FontStack) closeAll() error {
 	if fs == nil {
 		return nil
 	}
@@ -65,6 +66,9 @@ func (fs *FontStack) Close() error {
 	fs.sources = nil
 	return firstErr
 }
+
+// Close y face ya no deben usarse en pantallas individuales: solo
+// CloseSharedFonts puede liberar las fuentes compartidas.
 
 var (
 	fontsOnce       sync.Once
@@ -133,11 +137,11 @@ func loadFont() (*FontStack, *FontStack) {
 // CloseSharedFonts libera las fuentes cacheadas al cerrar la aplicación.
 func CloseSharedFonts() {
 	if cachedTitleFont != nil {
-		_ = cachedTitleFont.Close()
+		_ = cachedTitleFont.closeAll()
 		cachedTitleFont = nil
 	}
 	if cachedUIFont != nil {
-		_ = cachedUIFont.Close()
+		_ = cachedUIFont.closeAll()
 		cachedUIFont = nil
 	}
 }
@@ -168,6 +172,17 @@ func defaultSystemFont() string {
 	default:
 		return "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 	}
+}
+
+// DirtyScreen permite evitar redibujados constantes de pantallas estáticas.
+type DirtyScreen interface {
+	ConsumeDirty() bool
+	IsAnimating() bool
+}
+
+// MarkDirtyScreen es implementado por pantallas que pueden invalidarse al activarse.
+type MarkDirtyScreen interface {
+	MarkDirty()
 }
 
 // Screen represents any navigable UI view rendered onto the 2D overlay canvas.
@@ -204,8 +219,13 @@ func (sm *ScreenManager) SetScreen(next Screen) {
 	w, h := sm.w, sm.h
 	sm.mu.Unlock()
 
-	if next != nil && w > 0 && h > 0 {
-		next.SetViewport(w, h)
+	if next != nil {
+		if w > 0 && h > 0 {
+			next.SetViewport(w, h)
+		}
+		if dirty, ok := next.(MarkDirtyScreen); ok {
+			dirty.MarkDirty()
+		}
 	}
 }
 

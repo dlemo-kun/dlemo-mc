@@ -49,6 +49,8 @@ type ServerSelectScreen struct {
 	nameFace  text.Face
 	metaFace  text.Face
 	btnFace   text.Face
+
+	dirty bool
 }
 
 // NewServerSelectScreen creates a new multiplayer server selection screen.
@@ -58,6 +60,7 @@ func NewServerSelectScreen(tr *i18n.Manager, servers []*ServerEntry, actions Ser
 		servers:  servers,
 		selected: 0,
 		actions:  actions,
+		dirty:    true,
 	}
 	if len(s.servers) == 0 {
 		s.selected = -1
@@ -353,12 +356,39 @@ func (s *ServerSelectScreen) drawServerCard(cc *gg.Context, srv *ServerEntry, se
 	cc.DrawStringAnchored(statusText, srv.x+srv.w-38, srv.y+srv.h/2, 1.0, 0.5)
 }
 
-// Close releases font sources owned by this screen.
-func (s *ServerSelectScreen) Close() {
-	if s.titleFont != nil {
-		_ = s.titleFont.Close()
-	}
-	if s.uiFont != nil && s.uiFont != s.titleFont {
-		_ = s.uiFont.Close()
-	}
+// MarkDirty invalidates the retained canvas after activation or viewport changes.
+func (s *ServerSelectScreen) MarkDirty() {
+	s.mu.Lock()
+	s.dirty = true
+	s.mu.Unlock()
 }
+
+func (s *ServerSelectScreen) ConsumeDirty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirty {
+		s.dirty = false
+		return true
+	}
+	return false
+}
+
+func (s *ServerSelectScreen) IsAnimating() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, srv := range s.servers {
+		if (srv.hovered && srv.hoverT < 1) || (!srv.hovered && srv.hoverT > 0) {
+			return true
+		}
+	}
+	for _, btn := range s.buttons {
+		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// Close releases no owned resources: fonts and the GPU canvas are shared and
+// are released by CloseSharedFonts and Renderer.Close respectively.
+func (s *ServerSelectScreen) Close() {}

@@ -50,10 +50,14 @@ func (r *Renderer) RenderScreen(dc *gogpu.Context, provider gpucontext.DevicePro
 
 	screen.SetViewport(float64(w), float64(h))
 
-	r.canvas.Draw(func(cc *gg.Context) {
+	// Remove dirty screen optimization to prevent canvas cache persistence issues
+	if err := r.canvas.Draw(func(cc *gg.Context) {
 		cc.Clear()
 		screen.Draw(cc)
-	})
+	}); err != nil {
+		log.Printf("render: failed to draw canvas: %v", err)
+		return
+	}
 
 	if err := r.canvas.Render(dc.RenderTarget()); err != nil {
 		log.Printf("render: failed to composite canvas: %v", err)

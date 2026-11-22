@@ -17,12 +17,13 @@ type langItem struct {
 
 // LanguageSelectScreen displays all languages discovered in .minecraft.
 type LanguageSelectScreen struct {
-	mu       sync.Mutex
-	tr       *i18n.Manager
-	w, h     float64
-	items    []*langItem
-	scrollY  float64
+	mu        sync.Mutex
+	tr        *i18n.Manager
+	w, h      float64
+	items     []*langItem
+	scrollY   float64
 	maxScroll float64
+	dirty     bool
 
 	panelX, panelY, panelW, panelH float64
 	listX, listY, listW, listH     float64
@@ -33,7 +34,7 @@ type LanguageSelectScreen struct {
 
 	onSelect func(code string)
 	onBack   func()
-	
+
 	titleFont *FontStack
 	uiFont    *FontStack
 	titleFace text.Face
@@ -61,6 +62,7 @@ func NewLanguageSelectScreen(tr *i18n.Manager, onSelect func(code string), onBac
 		items:    items,
 		onSelect: onSelect,
 		onBack:   onBack,
+		dirty:    true,
 	}
 
 	titleFont, uiFont := loadFont()
@@ -348,12 +350,39 @@ func (s *LanguageSelectScreen) drawLangRow(cc *gg.Context, item *langItem, y flo
 	cc.DrawStringAnchored(meta, s.listX+s.listW-16, y+langRowH/2, 1.0, 0.5)
 }
 
-// Close releases font sources owned by this screen.
-func (s *LanguageSelectScreen) Close() {
-	if s.titleFont != nil {
-		_ = s.titleFont.Close()
+// Close releases no owned resources: fonts are application-shared resources.
+func (s *LanguageSelectScreen) Close() {}
+
+// DirtyScreen support keeps the static language list from being rebuilt every frame.
+func (s *LanguageSelectScreen) ConsumeDirty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirty {
+		s.dirty = false
+		return true
 	}
-	if s.uiFont != nil && s.uiFont != s.titleFont {
-		_ = s.uiFont.Close()
+	return false
+}
+
+func (s *LanguageSelectScreen) IsAnimating() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, item := range s.items {
+		if (item.hovered && item.hoverT < 1) || (!item.hovered && item.hoverT > 0) {
+			return true
+		}
 	}
+	for _, b := range []*TextButton{s.upBtn, s.downBtn, s.doneBtn} {
+		if (b.Hovered && b.HoverT < 1) || (!b.Hovered && b.HoverT > 0) {
+			return true
+		}
+	}
+	return false
+}
+
+// MarkDirty invalidates the retained canvas after activation or viewport changes.
+func (s *LanguageSelectScreen) MarkDirty() {
+	s.mu.Lock()
+	s.dirty = true
+	s.mu.Unlock()
 }

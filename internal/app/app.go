@@ -117,6 +117,8 @@ func Run() error {
 			{Name: "Localhost Alt", Host: "127.0.0.1", Port: 25566},
 			{Name: "Servidor Local", Host: "localhost", Port: 25565},
 			{Name: "Localhost Alt", Host: "127.0.0.1", Port: 25566},
+			{Name: "Servidor Local", Host: "localhost", Port: 25565},
+			{Name: "Localhost Alt", Host: "127.0.0.1", Port: 25566},
 		},
 		ui.ServerSelectActions{
 			OnConnect: connectTo,
@@ -193,6 +195,7 @@ func Run() error {
 		nav.SetViewport(float64(dc.Width()), float64(dc.Height()))
 		dc.ClearColor(gmath.Hex(0x111520))
 		r.RenderScreen(dc, a.GPUContextProvider(), nav.Current())
+		a.RequestRedraw()
 	})
 
 	stopRender := make(chan struct{})
@@ -226,6 +229,7 @@ func Run() error {
 		serverScreen.Close()
 		worldScreen.Close()
 		langScreen.Close()
+		ui.CloseSharedFonts()
 	})
 
 	return a.Run()

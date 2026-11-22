@@ -44,6 +44,8 @@ type WorldSelectScreen struct {
 	nameFace  text.Face
 	metaFace  text.Face
 	btnFace   text.Face
+
+	dirty bool
 }
 
 // NewWorldSelectScreen creates a new singleplayer world selection screen.
@@ -53,18 +55,17 @@ func NewWorldSelectScreen(tr *i18n.Manager, worlds []*WorldEntry, actions WorldS
 		worlds:   worlds,
 		selected: 0,
 		actions:  actions,
+		dirty:    true,
 	}
 	if len(s.worlds) == 0 {
 		s.selected = -1
 	}
 
-	
 	titleFont, uiFont := loadFont()
 
 	s.titleFont = titleFont
 	s.uiFont = uiFont
 
-	
 	if s.titleFont != nil {
 		s.titleFace = s.titleFont.Face(32)
 	}
@@ -297,12 +298,38 @@ func (s *WorldSelectScreen) drawWorldCard(cc *gg.Context, world *WorldEntry, sel
 	cc.DrawString(fmt.Sprintf("%s  •  %s", world.GameMode, world.LastPlayed), world.x+18, world.y+49)
 }
 
-// Close releases font sources owned by this screen.
-func (s *WorldSelectScreen) Close() {
-	if s.titleFont != nil {
-		_ = s.titleFont.Close()
+// Close releases no owned resources: fonts are application-shared resources.
+func (s *WorldSelectScreen) Close() {}
+
+// MarkDirty invalidates the retained canvas after activation or viewport changes.
+func (s *WorldSelectScreen) MarkDirty() {
+	s.mu.Lock()
+	s.dirty = true
+	s.mu.Unlock()
+}
+
+func (s *WorldSelectScreen) ConsumeDirty() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.dirty {
+		s.dirty = false
+		return true
 	}
-	if s.uiFont != nil && s.uiFont != s.titleFont {
-		_ = s.uiFont.Close()
+	return false
+}
+
+func (s *WorldSelectScreen) IsAnimating() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, world := range s.worlds {
+		if (world.hovered && world.hoverT < 1) || (!world.hovered && world.hoverT > 0) {
+			return true
+		}
 	}
+	for _, btn := range s.buttons {
+		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
+			return true
+		}
+	}
+	return false
 }
