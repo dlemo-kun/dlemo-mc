@@ -6,101 +6,88 @@ import (
 
 	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
 	"github.com/gogpu/gg"
-	"github.com/gogpu/gg/text"
 )
 
-type langItem struct {
-	info    i18n.LanguageInfo
-	hovered bool
-	hoverT  float64
-}
-
-// LanguageSelectScreen displays all languages discovered in .minecraft.
+// LanguageSelectScreen displays all languages discovered with smooth scrolling,
+// modular CardWidget items, and a unified action button.
 type LanguageSelectScreen struct {
-	mu        sync.Mutex
-	tr        *i18n.Manager
-	w, h      float64
-	items     []*langItem
-	scrollY   float64
-	maxScroll float64
-	dirty     bool
-
-	panelX, panelY, panelW, panelH float64
-	listX, listY, listW, listH     float64
-
-	upBtn   *TextButton
-	downBtn *TextButton
-	doneBtn *TextButton
-
+	mu       sync.Mutex
+	tr       *i18n.Manager
+	w, h     float64
 	onSelect func(code string)
 	onBack   func()
+	theme    *UITheme
 
-	titleFont *FontStack
-	uiFont    *FontStack
-	titleFace text.Face
-	subFace   text.Face
-	nameFace  text.Face
-	metaFace  text.Face
-	btnFace   text.Face
+	// Modular UI 2.0 components
+	scrollView *ScrollView
+	cards      []*CardWidget
+	doneBtn    *UIButton
+
+	// Center glass panel bounds
+	panelX, panelY, panelW, panelH float64
+
+	dirty bool
 }
-
-const (
-	langRowH   = 52.0
-	langRowGap = 8.0
-)
 
 // NewLanguageSelectScreen creates the language selector populated from tr.
 func NewLanguageSelectScreen(tr *i18n.Manager, onSelect func(code string), onBack func()) *LanguageSelectScreen {
-	langs := tr.Languages()
-	items := make([]*langItem, len(langs))
-	for i, l := range langs {
-		items[i] = &langItem{info: l}
-	}
+	theme := NewUITheme()
 
 	s := &LanguageSelectScreen{
 		tr:       tr,
-		items:    items,
 		onSelect: onSelect,
 		onBack:   onBack,
+		theme:    theme,
 		dirty:    true,
 	}
 
-	titleFont, uiFont := loadFont()
+	// 1. Scrollable language card list
+	s.scrollView = NewScrollView(0, 0)
+	langs := tr.Languages()
+	activeCode := tr.CurrentCode()
 
-	s.titleFont = titleFont
-	s.uiFont = uiFont
+	s.cards = make([]*CardWidget, len(langs))
+	for i, l := range langs {
+		lang := l
+		displayName := lang.Name
+		if lang.Region != "" {
+			displayName += " (" + lang.Region + ")"
+		}
 
-	if s.titleFont != nil {
-		s.titleFace = s.titleFont.Face(32)
-	}
-	if s.uiFont != nil {
-		s.subFace = s.uiFont.Face(13)
-		s.nameFace = s.uiFont.Face(15)
-		s.metaFace = s.uiFont.Face(12)
-		s.btnFace = s.uiFont.Face(15)
+		card := NewCardWidget(displayName, "", lang.Code, lang.Code == activeCode, func() {
+			s.selectLanguage(lang.Code)
+		})
+		card.NameFace = theme.NameFace
+		card.MetaFace = theme.MetaFace
+		card.Radius = 10.0
+
+		s.cards[i] = card
+		s.scrollView.Add(card)
 	}
 
-	s.upBtn = &TextButton{
-		Label: "▲",
-		OnClick: func() {
-			s.OnMouseScroll(2.0)
-		},
-	}
-	s.downBtn = &TextButton{
-		Label: "▼",
-		OnClick: func() {
-			s.OnMouseScroll(-2.0)
-		},
-	}
-	s.doneBtn = &TextButton{
-		Label:   "Done",
-		OnClick: onBack,
-	}
+	// 2. Action button centered at bottom
+	s.doneBtn = NewUIButton(tr.T("gui.done"), true, onBack)
+	s.doneBtn.Key = "gui.done"
+	s.doneBtn.Face = theme.BtnFace
 
 	return s
 }
 
-// SetViewport recalculates panel, scroll bounds, and footer button layout.
+func (s *LanguageSelectScreen) selectLanguage(code string) {
+	s.mu.Lock()
+	for _, card := range s.cards {
+		card.Selected = (card.Meta == code)
+	}
+	cb := s.onSelect
+	s.dirty = true
+	s.mu.Unlock()
+
+	if cb != nil {
+		cb(code)
+	}
+}
+
+// SetViewport recalculates panel, scrollview, and button layout responsively.
 func (s *LanguageSelectScreen) SetViewport(w, h float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -108,159 +95,91 @@ func (s *LanguageSelectScreen) SetViewport(w, h float64) {
 		return
 	}
 	s.w, s.h = w, h
+	s.dirty = true
 
-	s.panelX = 44.0
-	s.panelW = w - 88.0
-	if s.panelW > 760 {
-		s.panelW = 760
-		s.panelX = (w - s.panelW) / 2
-	}
-	s.panelY = 108.0
-	s.panelH = h - s.panelY - 104.0
-	if s.panelH < 120 {
-		s.panelH = 120
+	panelX := 44.0
+	panelW := w - 88.0
+	if panelW > 760 {
+		panelW = 760
+		panelX = (w - panelW) / 2
 	}
 
-	s.listX = s.panelX + 16
-	s.listY = s.panelY + 14
-	s.listW = s.panelW - 72
-	s.listH = s.panelH - 28
-
-	totalH := float64(len(s.items))*(langRowH+langRowGap) - langRowGap
-	if totalH < 0 {
-		totalH = 0
-	}
-	s.maxScroll = totalH - s.listH
-	if s.maxScroll < 0 {
-		s.maxScroll = 0
-	}
-	if s.scrollY > s.maxScroll {
-		s.scrollY = s.maxScroll
+	panelY := 108.0
+	panelH := h - panelY - 104.0
+	if panelH < 120 {
+		panelH = 120
 	}
 
-	// Scroll up/down buttons on right edge of panel
-	scrollBtnX := s.panelX + s.panelW - 44
-	s.upBtn.X, s.upBtn.Y, s.upBtn.W, s.upBtn.H = scrollBtnX, s.listY, 30, 32
-	s.downBtn.X, s.downBtn.Y, s.downBtn.W, s.downBtn.H = scrollBtnX, s.listY+s.listH-32, 30, 32
+	s.panelX, s.panelY, s.panelW, s.panelH = panelX, panelY, panelW, panelH
+
+	// Configure ScrollView bounds inside the panel matching World/Server select screens
+	const scrollPad = 14.0
+	s.scrollView.SetBounds(panelX+scrollPad, panelY+scrollPad, panelW-scrollPad*2, panelH-scrollPad*2)
+	s.scrollView.LayoutVertical(50.0, 8.0)
 
 	// Done button centered at bottom
-	const btnW = 240.0
-	const btnH = 42.0
-	s.doneBtn.X = s.panelX + (s.panelW-btnW)/2
-	s.doneBtn.Y = h - 44.0 - btnH
-	s.doneBtn.W = btnW
-	s.doneBtn.H = btnH
+	const doneW = 240.0
+	const doneH = 42.0
+	s.doneBtn.SetBounds(panelX+(panelW-doneW)/2, h-44.0-doneH, doneW, doneH)
 }
 
-// OnMouseScroll scrolls the language list vertically.
-func (s *LanguageSelectScreen) OnMouseScroll(deltaY float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.scrollY += deltaY * 42.0
-	if s.scrollY < 0 {
-		s.scrollY = 0
-	}
-	if s.scrollY > s.maxScroll {
-		s.scrollY = s.maxScroll
-	}
-}
-
-// Update advances hover animations.
+// Update advances smooth scrolling and hover animations.
 func (s *LanguageSelectScreen) Update(dt float64) {
-	if dt > 0.05 {
-		dt = 0.05
-	}
-	speed := dt * 10.0
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, item := range s.items {
-		item.hoverT = approach(item.hoverT, item.hovered, speed)
-	}
-	for _, b := range []*TextButton{s.upBtn, s.downBtn, s.doneBtn} {
-		b.HoverT = approach(b.HoverT, b.Hovered, speed)
-	}
+	s.scrollView.Update(dt)
+	s.doneBtn.Update(dt)
 }
 
-// OnMouseMove updates hover state for visible language rows and buttons.
+// OnMouseMove updates hover states in the scroll view and button.
 func (s *LanguageSelectScreen) OnMouseMove(x, y float64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := false
-
-	inList := x >= s.listX && x <= s.listX+s.listW && y >= s.listY && y <= s.listY+s.listH
-	for i, item := range s.items {
-		ry := s.listY + float64(i)*(langRowH+langRowGap) - s.scrollY
-		h := inList && y >= ry && y <= ry+langRowH
-		if h != item.hovered {
-			item.hovered = h
-			changed = true
-		}
+	sc := s.scrollView.OnMouseMove(x, y)
+	dn := s.doneBtn.OnMouseMove(x, y)
+	if sc || dn {
+		s.dirty = true
+		return true
 	}
-
-	for _, b := range []*TextButton{s.upBtn, s.downBtn, s.doneBtn} {
-		h := x >= b.X && x <= b.X+b.W && y >= b.Y && y <= b.Y+b.H
-		if h != b.Hovered {
-			b.Hovered = h
-			changed = true
-		}
-	}
-	return changed
+	return false
 }
 
-// OnMousePress selects a language or triggers scroll/done buttons.
+// OnMousePress handles item selection or button clicks.
 func (s *LanguageSelectScreen) OnMousePress(x, y float64) {
-	s.OnMouseMove(x, y)
-
-	var selectedCode string
-	var clickAction func()
-
-	s.mu.Lock()
-	for _, item := range s.items {
-		if item.hovered {
-			selectedCode = item.info.Code
-			break
-		}
-	}
-	if selectedCode == "" {
-		for _, b := range []*TextButton{s.upBtn, s.downBtn, s.doneBtn} {
-			if b.Hovered {
-				clickAction = b.OnClick
-				break
-			}
-		}
-	}
-	cbSelect := s.onSelect
-	s.mu.Unlock()
-
-	if selectedCode != "" && cbSelect != nil {
-		cbSelect(selectedCode)
+	if s.scrollView.OnMousePress(x, y) {
 		return
 	}
-	if clickAction != nil {
-		clickAction()
-	}
+	_ = s.doneBtn.OnMousePress(x, y)
 }
 
-// Draw renders the scrollable language selector.
+// OnMouseScroll forwards wheel events to the smooth scroll container.
+func (s *LanguageSelectScreen) OnMouseScroll(deltaY float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scrollView.ScrollBy(deltaY * 42.0)
+	s.dirty = true
+}
+
+// Draw renders the language selection screen.
 func (s *LanguageSelectScreen) Draw(cc *gg.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// Header: Title & Subtitle
 	title := strings.TrimSuffix(s.tr.T("options.language"), "...")
-	if s.titleFace != nil {
-		cc.SetFont(s.titleFace)
+	if s.theme.TitleFace != nil {
+		cc.SetFont(s.theme.TitleFace)
 	}
 	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
 	cc.DrawString(title, s.panelX, 66)
 
-	if s.subFace != nil {
-		cc.SetFont(s.subFace)
+	if s.theme.SubFace != nil {
+		cc.SetFont(s.theme.SubFace)
 	}
 	cc.SetRGBA(0.75, 0.80, 0.90, 0.85)
 	cc.DrawString(s.tr.T("options.languageWarning"), s.panelX, 88)
 
-	// Center glass panel
+	// Center glass panel container
 	cc.SetRGBA(0.06, 0.08, 0.12, 0.65)
 	cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 	_ = cc.Fill()
@@ -270,119 +189,30 @@ func (s *LanguageSelectScreen) Draw(cc *gg.Context) {
 	cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 	_ = cc.Stroke()
 
-	activeCode := s.tr.CurrentCode()
+	// Scrollable language cards
+	s.scrollView.Draw(cc)
 
-	// Clip scrollable language rows inside the panel
-	cc.Push()
-	cc.ClipRect(s.listX, s.listY, s.listW, s.listH)
-	for i, item := range s.items {
-		ry := s.listY + float64(i)*(langRowH+langRowGap) - s.scrollY
-		if ry+langRowH < s.listY || ry > s.listY+s.listH {
-			continue
-		}
-		s.drawLangRow(cc, item, ry, item.info.Code == activeCode)
-	}
-	cc.Pop()
-
-	// Scrollbar indicator
-	if s.maxScroll > 0 {
-		trackX := s.panelX + s.panelW - 33
-		trackY := s.upBtn.Y + s.upBtn.H + 8
-		trackH := s.downBtn.Y - 8 - trackY
-		if trackH > 20 {
-			cc.SetRGBA(1, 1, 1, 0.08)
-			cc.DrawRoundedRectangle(trackX, trackY, 8, trackH, 4)
-			_ = cc.Fill()
-
-			ratio := s.listH / (s.listH + s.maxScroll)
-			thumbH := trackH * ratio
-			if thumbH < 24 {
-				thumbH = 24
-			}
-			thumbY := trackY + (s.scrollY/s.maxScroll)*(trackH-thumbH)
-			cc.SetRGBA(0.65, 0.78, 0.98, 0.65)
-			cc.DrawRoundedRectangle(trackX, thumbY, 8, thumbH, 4)
-			_ = cc.Fill()
-		}
-	}
-
-	drawActionButton(cc, s.upBtn, s.metaFace, false)
-	drawActionButton(cc, s.downBtn, s.metaFace, false)
-
+	// Done button
 	s.doneBtn.Label = s.tr.T("gui.done")
-	drawActionButton(cc, s.doneBtn, s.btnFace, true)
+	s.doneBtn.Draw(cc)
 }
 
-func (s *LanguageSelectScreen) drawLangRow(cc *gg.Context, item *langItem, y float64, active bool) {
-	t := item.hoverT
-	if active {
-		cc.SetRGBA(0.14, 0.25, 0.36, 0.90)
-	} else {
-		cc.SetRGBA(lerp(0.09, 0.14, t), lerp(0.11, 0.17, t), lerp(0.16, 0.24, t), lerp(0.72, 0.86, t))
-	}
-	cc.DrawRoundedRectangle(s.listX, y, s.listW, langRowH, 10)
-	_ = cc.Fill()
-
-	if active {
-		cc.SetRGBA(0.45, 0.78, 1.0, 0.80)
-		cc.SetLineWidth(1.5)
-	} else {
-		cc.SetRGBA(1, 1, 1, lerp(0.10, 0.28, t))
-		cc.SetLineWidth(1)
-	}
-	cc.DrawRoundedRectangle(s.listX, y, s.listW, langRowH, 10)
-	_ = cc.Stroke()
-
-	if s.nameFace != nil {
-		cc.SetFont(s.nameFace)
-	}
-	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
-	cc.DrawStringAnchored(item.info.Name, s.listX+16, y+langRowH/2, 0.0, 0.5)
-
-	if s.metaFace != nil {
-		cc.SetFont(s.metaFace)
-	}
-	meta := item.info.Code
-	if item.info.Region != "" {
-		meta = item.info.Region + "  •  " + item.info.Code
-	}
-	cc.SetRGBA(0.72, 0.78, 0.88, 0.85)
-	cc.DrawStringAnchored(meta, s.listX+s.listW-16, y+langRowH/2, 1.0, 0.5)
-}
-
-// Close releases no owned resources: fonts are application-shared resources.
+// Close satisfies the Screen interface.
 func (s *LanguageSelectScreen) Close() {}
 
-// DirtyScreen support keeps the static language list from being rebuilt every frame.
-func (s *LanguageSelectScreen) ConsumeDirty() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.dirty {
-		s.dirty = false
-		return true
-	}
-	return false
-}
-
-func (s *LanguageSelectScreen) IsAnimating() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, item := range s.items {
-		if (item.hovered && item.hoverT < 1) || (!item.hovered && item.hoverT > 0) {
-			return true
-		}
-	}
-	for _, b := range []*TextButton{s.upBtn, s.downBtn, s.doneBtn} {
-		if (b.Hovered && b.HoverT < 1) || (!b.Hovered && b.HoverT > 0) {
-			return true
-		}
-	}
-	return false
-}
-
-// MarkDirty invalidates the retained canvas after activation or viewport changes.
+// MarkDirty flags the screen as needing redraw.
 func (s *LanguageSelectScreen) MarkDirty() {
 	s.mu.Lock()
 	s.dirty = true
 	s.mu.Unlock()
+}
+
+// ConsumeDirty reports whether the screen needs redraw.
+func (s *LanguageSelectScreen) ConsumeDirty() bool {
+	return true
+}
+
+// IsAnimating reports whether any transition is active.
+func (s *LanguageSelectScreen) IsAnimating() bool {
+	return true
 }

@@ -202,14 +202,32 @@ type Scrollable interface {
 
 // ScreenManager holds the active screen and dispatches input/update calls safely.
 type ScreenManager struct {
-	mu      sync.RWMutex
-	current Screen
-	w, h    float64
+	mu         sync.RWMutex
+	current    Screen
+	background BackgroundProvider
+	w, h       float64
 }
 
 // NewScreenManager creates a ScreenManager with an initial active screen.
 func NewScreenManager(initial Screen) *ScreenManager {
-	return &ScreenManager{current: initial}
+	return &ScreenManager{
+		current:    initial,
+		background: &SolidBackground{R: 0.067, G: 0.082, B: 0.125, A: 1.0}, // Default #111520
+	}
+}
+
+// SetBackground sets the active BackgroundProvider (e.g. panorama or world renderer).
+func (sm *ScreenManager) SetBackground(bg BackgroundProvider) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.background = bg
+}
+
+// Background returns the current BackgroundProvider.
+func (sm *ScreenManager) Background() BackgroundProvider {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.background
 }
 
 // SetScreen switches the active screen and applies the latest known viewport size.
@@ -275,28 +293,4 @@ func (sm *ScreenManager) SetViewport(w, h float64) {
 	if s != nil {
 		s.SetViewport(w, h)
 	}
-}
-
-func drawActionButton(cc *gg.Context, btn *TextButton, face text.Face, primary bool) {
-	if face != nil {
-		cc.SetFont(face)
-	}
-	t := btn.HoverT
-	const radius = 10.0
-
-	if primary {
-		cc.SetRGBA(lerp(0.14, 0.22, t), lerp(0.45, 0.58, t), lerp(0.32, 0.42, t), lerp(0.88, 0.98, t))
-	} else {
-		cc.SetRGBA(lerp(0.08, 0.16, t), lerp(0.09, 0.19, t), lerp(0.13, 0.27, t), lerp(0.76, 0.92, t))
-	}
-	cc.DrawRoundedRectangle(btn.X, btn.Y, btn.W, btn.H, radius)
-	_ = cc.Fill()
-
-	cc.SetRGBA(1, 1, 1, lerp(0.14, 0.40, t))
-	cc.SetLineWidth(1)
-	cc.DrawRoundedRectangle(btn.X, btn.Y, btn.W, btn.H, radius)
-	_ = cc.Stroke()
-
-	cc.SetRGBA(0.96, 0.97, 1.0, lerp(0.88, 1.0, t))
-	cc.DrawStringAnchored(btn.Label, btn.X+btn.W/2, btn.Y+btn.H/2, 0.5, 0.5)
 }

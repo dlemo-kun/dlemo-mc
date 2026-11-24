@@ -6,7 +6,6 @@ import (
 
 	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
 	"github.com/gogpu/gg"
-	"github.com/gogpu/gg/text"
 )
 
 // ServerEntry describes a multiplayer server shown in the server list.
@@ -19,10 +18,6 @@ type ServerEntry struct {
 	Max     int
 	IsUp    bool
 	Loading bool
-
-	x, y, w, h float64
-	hovered    bool
-	hoverT     float64
 }
 
 // ServerSelectActions defines callbacks triggered from the server selection screen.
@@ -32,103 +27,128 @@ type ServerSelectActions struct {
 	OnBack    func()
 }
 
-// ServerSelectScreen displays the multiplayer server list and connection controls.
+// ServerSelectScreen displays the multiplayer server list with async ping updates,
+// smooth scrolling via ScrollView, and modular CardWidget items.
 type ServerSelectScreen struct {
 	mu       sync.Mutex
 	tr       *i18n.Manager
 	w, h     float64
 	servers  []*ServerEntry
 	selected int
-	buttons  []*TextButton
 	actions  ServerSelectActions
+	theme    *UITheme
 
-	titleFont *FontStack
-	uiFont    *FontStack
-	titleFace text.Face
-	subFace   text.Face
-	nameFace  text.Face
-	metaFace  text.Face
-	btnFace   text.Face
+	// Modular UI 2.0 components
+	scrollView *ScrollView
+	cards      []*CardWidget
+	footerBox  *FlexBox
+	buttons    []*UIButton
+
+	// Center glass panel coordinates
+	panelX, panelY, panelW, panelH float64
 
 	dirty bool
 }
 
 // NewServerSelectScreen creates a new multiplayer server selection screen.
 func NewServerSelectScreen(tr *i18n.Manager, servers []*ServerEntry, actions ServerSelectActions) *ServerSelectScreen {
+	theme := NewUITheme()
+
 	s := &ServerSelectScreen{
 		tr:       tr,
 		servers:  servers,
 		selected: 0,
 		actions:  actions,
+		theme:    theme,
 		dirty:    true,
 	}
 	if len(s.servers) == 0 {
 		s.selected = -1
 	}
 
-	titleFont, uiFont := loadFont()
+	// 1. Scrollable server list container
+	s.scrollView = NewScrollView(0, 0)
+	s.cards = make([]*CardWidget, len(servers))
+	for i, srv := range servers {
+		idx := i
+		sItem := srv
+		sub := sItem.MOTD
+		if sub == "" {
+			sub = fmt.Sprintf("%s:%d", sItem.Host, sItem.Port)
+		} else {
+			sub = fmt.Sprintf("%s:%d  •  %s", sItem.Host, sItem.Port, sub)
+		}
 
-	s.titleFont = titleFont
-	s.uiFont = uiFont
+		card := NewCardWidget(sItem.Name, sub, "", i == s.selected, func() {
+			s.selectServer(idx)
+		})
+		card.NameFace = theme.NameFace
+		card.MetaFace = theme.MetaFace
+		card.ShowStatus = true
+		if sItem.Loading {
+			card.StatusText = "..."
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.75, 0.78, 0.85
+		} else if sItem.IsUp {
+			card.StatusText = fmt.Sprintf("%d/%d", sItem.Online, sItem.Max)
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.35, 0.88, 0.56
+		} else {
+			card.StatusText = "Offline"
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.90, 0.36, 0.36
+		}
 
-	if s.titleFont != nil {
-		s.titleFace = s.titleFont.Face(32)
+		s.cards[i] = card
+		s.scrollView.Add(card)
 	}
-	if s.uiFont != nil {
-		s.subFace = s.uiFont.Face(13)
-		s.nameFace = s.uiFont.Face(16)
-		s.metaFace = s.uiFont.Face(13)
-		s.btnFace = s.uiFont.Face(15)
-	}
 
-	s.buttons = []*TextButton{
-		{
-			Key:   "selectServer.select",
-			Label: "Join Server",
-			OnClick: func() {
-				s.mu.Lock()
-				var target *ServerEntry
-				if s.selected >= 0 && s.selected < len(s.servers) {
-					target = s.servers[s.selected]
-				}
-				cb := s.actions.OnConnect
-				s.mu.Unlock()
-				if target != nil && cb != nil {
-					cb(target.Host, target.Port)
-				}
-			},
-		},
-		{
-			Key:   "selectServer.refresh",
-			Label: "Refresh",
-			OnClick: func() {
-				s.mu.Lock()
-				list := append([]*ServerEntry(nil), s.servers...)
-				cb := s.actions.OnRefresh
-				s.mu.Unlock()
-				if cb != nil {
-					cb(list)
-				}
-			},
-		},
-		{
-			Key:     "gui.back",
-			Label:   "Back",
-			OnClick: actions.OnBack,
-		},
+	// 2. Responsive footer buttons with FlexBox
+	joinBtn := NewUIButton(s.resolveText("selectServer.select", "Join Server"), true, func() {
+		s.mu.Lock()
+		var target *ServerEntry
+		if s.selected >= 0 && s.selected < len(s.servers) {
+			target = s.servers[s.selected]
+		}
+		cb := s.actions.OnConnect
+		s.mu.Unlock()
+		if target != nil && cb != nil {
+			cb(target.Host, target.Port)
+		}
+	})
+	joinBtn.Key = "selectServer.select"
+	joinBtn.Face = theme.BtnFace
+
+	refreshBtn := NewUIButton(s.resolveText("selectServer.refresh", "Refresh"), false, func() {
+		s.mu.Lock()
+		list := append([]*ServerEntry(nil), s.servers...)
+		cb := s.actions.OnRefresh
+		s.mu.Unlock()
+		if cb != nil {
+			cb(list)
+		}
+	})
+	refreshBtn.Key = "selectServer.refresh"
+	refreshBtn.Face = theme.BtnFace
+
+	backBtn := NewUIButton(s.resolveText("gui.back", "Back"), false, actions.OnBack)
+	backBtn.Key = "gui.back"
+	backBtn.Face = theme.BtnFace
+
+	s.buttons = []*UIButton{joinBtn, refreshBtn, backBtn}
+	s.footerBox = NewFlexBox(Row, 12, 0)
+	for _, btn := range s.buttons {
+		s.footerBox.Add(btn)
 	}
 
 	return s
 }
 
-// Servers returns a snapshot slice of the configured servers.
+// Servers returns a snapshot slice of configured servers.
 func (s *ServerSelectScreen) Servers() []*ServerEntry {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]*ServerEntry(nil), s.servers...)
 }
 
-// SetServerStatus updates ping status fields for a server entry safely from any goroutine.
+// SetServerStatus updates ping status fields safely from asynchronous ping routines.
 func (s *ServerSelectScreen) SetServerStatus(index int, motd string, online, max int, up, loading bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -141,9 +161,44 @@ func (s *ServerSelectScreen) SetServerStatus(index int, motd string, online, max
 	srv.Max = max
 	srv.IsUp = up
 	srv.Loading = loading
+
+	// Update corresponding card widget in scrollview
+	if index < len(s.cards) {
+		card := s.cards[index]
+		sub := motd
+		if sub == "" {
+			sub = fmt.Sprintf("%s:%d", srv.Host, srv.Port)
+		} else {
+			sub = fmt.Sprintf("%s:%d  •  %s", srv.Host, srv.Port, sub)
+		}
+		card.Subtitle = sub
+
+		card.ShowStatus = true
+		if loading {
+			card.StatusText = "..."
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.75, 0.78, 0.85
+		} else if up {
+			card.StatusText = fmt.Sprintf("%d/%d", online, max)
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.35, 0.88, 0.56
+		} else {
+			card.StatusText = "Offline"
+			card.StatusDotR, card.StatusDotG, card.StatusDotB = 0.90, 0.36, 0.36
+		}
+	}
+	s.dirty = true
 }
 
-// SetViewport recalculates server card and footer button positions.
+func (s *ServerSelectScreen) selectServer(idx int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.selected = idx
+	for i, card := range s.cards {
+		card.Selected = (i == idx)
+	}
+	s.dirty = true
+}
+
+// SetViewport recalculates panel, scrollview, and footer layout responsively.
 func (s *ServerSelectScreen) SetViewport(w, h float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -151,6 +206,7 @@ func (s *ServerSelectScreen) SetViewport(w, h float64) {
 		return
 	}
 	s.w, s.h = w, h
+	s.dirty = true
 
 	panelX := 44.0
 	panelW := w - 88.0
@@ -159,138 +215,102 @@ func (s *ServerSelectScreen) SetViewport(w, h float64) {
 		panelX = (w - panelW) / 2
 	}
 
-	cardY := 124.0
-	const cardH = 68.0
-	const cardGap = 10.0
-	for i, srv := range s.servers {
-		srv.x = panelX + 16
-		srv.y = cardY + float64(i)*(cardH+cardGap)
-		srv.w = panelW - 32
-		srv.h = cardH
+	panelY := 108.0
+	panelH := h - panelY - 104.0
+	if panelH < 120 {
+		panelH = 120
 	}
 
+	s.panelX, s.panelY, s.panelW, s.panelH = panelX, panelY, panelW, panelH
+
+	// Configure ScrollView bounds inside the glass panel
+	const scrollPad = 14.0
+	s.scrollView.SetBounds(panelX+scrollPad, panelY+scrollPad, panelW-scrollPad*2, panelH-scrollPad*2)
+	s.scrollView.LayoutVertical(68.0, 10.0)
+
+	// Configure footer buttons row
 	const btnH = 42.0
-	const gap = 12.0
 	btnY := h - 44.0 - btnH
-	btnW := (panelW - float64(len(s.buttons)-1)*gap) / float64(len(s.buttons))
-	for i, btn := range s.buttons {
-		btn.X = panelX + float64(i)*(btnW+gap)
-		btn.Y = btnY
-		btn.W = btnW
-		btn.H = btnH
-	}
+	s.footerBox.SetBounds(panelX, btnY, panelW, btnH)
 }
 
-// Update advances hover animations.
+// Update advances smooth scrolling and hover animations.
 func (s *ServerSelectScreen) Update(dt float64) {
-	if dt > 0.05 {
-		dt = 0.05
-	}
-	speed := dt * 10.0
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, srv := range s.servers {
-		srv.hoverT = approach(srv.hoverT, srv.hovered, speed)
-	}
-	for _, btn := range s.buttons {
-		btn.HoverT = approach(btn.HoverT, btn.Hovered, speed)
-	}
+	s.scrollView.Update(dt)
+	s.footerBox.Update(dt)
 }
 
-// OnMouseMove updates hover state for cards and action buttons.
+// OnMouseMove updates hover states in the scroll view and footer buttons.
 func (s *ServerSelectScreen) OnMouseMove(x, y float64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := false
-	for _, srv := range s.servers {
-		h := x >= srv.x && x <= srv.x+srv.w && y >= srv.y && y <= srv.y+srv.h
-		if h != srv.hovered {
-			srv.hovered = h
-			changed = true
-		}
+	sc := s.scrollView.OnMouseMove(x, y)
+	fc := s.footerBox.OnMouseMove(x, y)
+	if sc || fc {
+		s.dirty = true
+		return true
 	}
-	for _, btn := range s.buttons {
-		h := x >= btn.X && x <= btn.X+btn.W && y >= btn.Y && y <= btn.Y+btn.H
-		if h != btn.Hovered {
-			btn.Hovered = h
-			changed = true
-		}
-	}
-	return changed
+	return false
 }
 
-// OnMousePress selects a server card or triggers a footer button action.
+// OnMousePress handles item selection or footer button clicks.
 func (s *ServerSelectScreen) OnMousePress(x, y float64) {
-	s.OnMouseMove(x, y)
-
-	var clickAction func()
-	s.mu.Lock()
-	for i, srv := range s.servers {
-		if srv.hovered {
-			s.selected = i
-			s.mu.Unlock()
-			return
-		}
+	if s.scrollView.OnMousePress(x, y) {
+		return
 	}
-	for _, btn := range s.buttons {
-		if btn.Hovered {
-			clickAction = btn.OnClick
-			break
-		}
-	}
-	s.mu.Unlock()
-
-	if clickAction != nil {
-		clickAction()
-	}
+	_ = s.footerBox.OnMousePress(x, y)
 }
 
-// Draw renders the multiplayer server selection UI.
+// OnMouseScroll forwards wheel events to the smooth scroll container.
+func (s *ServerSelectScreen) OnMouseScroll(deltaY float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scrollView.ScrollBy(deltaY * 42.0)
+	s.dirty = true
+}
+
+// Draw renders the multiplayer server selection screen.
 func (s *ServerSelectScreen) Draw(cc *gg.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	panelX := 44.0
-	panelW := s.w - 88.0
-	if panelW > 760 {
-		panelW = 760
-		panelX = (s.w - panelW) / 2
-	}
-
-	if s.titleFace != nil {
-		cc.SetFont(s.titleFace)
+	// Screen Header (Title & Subtitle)
+	if s.theme.TitleFace != nil {
+		cc.SetFont(s.theme.TitleFace)
 	}
 	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
-	cc.DrawString(s.resolveText("multiplayer.title", "Play Multiplayer"), panelX, 66)
+	cc.DrawString(s.resolveText("multiplayer.title", "Play Multiplayer"), s.panelX, 66)
 
-	if s.subFace != nil {
-		cc.SetFont(s.subFace)
+	if s.theme.SubFace != nil {
+		cc.SetFont(s.theme.SubFace)
 	}
 	cc.SetRGBA(0.75, 0.80, 0.90, 0.85)
-	cc.DrawString(s.resolveText("selectServer.defaultName", "Minecraft Server"), panelX, 88)
+	cc.DrawString(s.resolveText("selectServer.defaultName", "Minecraft Server"), s.panelX, 88)
 
-	panelY := 108.0
-	panelH := s.h - panelY - 104.0
-	if panelH > 120 {
+	// Center glass panel container
+	if s.panelH > 100 {
 		cc.SetRGBA(0.06, 0.08, 0.12, 0.65)
-		cc.DrawRoundedRectangle(panelX, panelY, panelW, panelH, 16)
+		cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 		_ = cc.Fill()
 
 		cc.SetRGBA(1, 1, 1, 0.12)
 		cc.SetLineWidth(1)
-		cc.DrawRoundedRectangle(panelX, panelY, panelW, panelH, 16)
+		cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 		_ = cc.Stroke()
 	}
 
-	for i, srv := range s.servers {
-		s.drawServerCard(cc, srv, i == s.selected)
-	}
+	// Render scrollable server cards
+	s.scrollView.Draw(cc)
 
-	for i, btn := range s.buttons {
-		btn.Label = s.resolveText(btn.Key, btn.Label)
-		drawActionButton(cc, btn, s.btnFace, i == 0)
+	// Refresh localized labels for footer buttons and draw
+	for _, btn := range s.buttons {
+		if btn.Key != "" && s.tr != nil {
+			btn.Label = s.tr.T(btn.Key)
+		}
 	}
+	s.footerBox.Draw(cc)
 }
 
 func (s *ServerSelectScreen) resolveText(key, fallback string) string {
@@ -300,95 +320,22 @@ func (s *ServerSelectScreen) resolveText(key, fallback string) string {
 	return fallback
 }
 
-func (s *ServerSelectScreen) drawServerCard(cc *gg.Context, srv *ServerEntry, selected bool) {
-	t := srv.hoverT
-	if selected {
-		cc.SetRGBA(0.14, 0.22, 0.34, 0.86)
-	} else {
-		cc.SetRGBA(lerp(0.09, 0.14, t), lerp(0.11, 0.17, t), lerp(0.16, 0.24, t), lerp(0.72, 0.86, t))
-	}
-	cc.DrawRoundedRectangle(srv.x, srv.y, srv.w, srv.h, 12)
-	_ = cc.Fill()
+// Close satisfies the Screen interface.
+func (s *ServerSelectScreen) Close() {}
 
-	if selected {
-		cc.SetRGBA(0.45, 0.72, 1.0, 0.75)
-		cc.SetLineWidth(1.5)
-	} else {
-		cc.SetRGBA(1, 1, 1, lerp(0.10, 0.28, t))
-		cc.SetLineWidth(1)
-	}
-	cc.DrawRoundedRectangle(srv.x, srv.y, srv.w, srv.h, 12)
-	_ = cc.Stroke()
-
-	if s.nameFace != nil {
-		cc.SetFont(s.nameFace)
-	}
-	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
-	cc.DrawString(srv.Name, srv.x+18, srv.y+27)
-
-	if s.metaFace != nil {
-		cc.SetFont(s.metaFace)
-	}
-	sub := srv.MOTD
-	if sub == "" {
-		sub = fmt.Sprintf("%s:%d", srv.Host, srv.Port)
-	} else {
-		sub = fmt.Sprintf("%s:%d  •  %s", srv.Host, srv.Port, sub)
-	}
-	cc.SetRGBA(0.72, 0.77, 0.87, 0.88)
-	cc.DrawString(sub, srv.x+18, srv.y+49)
-
-	statusText := "Offline"
-	dotR, dotG, dotB := 0.90, 0.36, 0.36
-	if srv.Loading {
-		statusText = "..."
-		dotR, dotG, dotB = 0.75, 0.78, 0.85
-	} else if srv.IsUp {
-		statusText = fmt.Sprintf("%d/%d", srv.Online, srv.Max)
-		dotR, dotG, dotB = 0.35, 0.88, 0.56
-	}
-
-	cc.SetRGBA(dotR, dotG, dotB, 0.95)
-	cc.DrawCircle(srv.x+srv.w-24, srv.y+srv.h/2, 5)
-	_ = cc.Fill()
-
-	cc.SetRGBA(0.88, 0.92, 0.98, 0.92)
-	cc.DrawStringAnchored(statusText, srv.x+srv.w-38, srv.y+srv.h/2, 1.0, 0.5)
-}
-
-// MarkDirty invalidates the retained canvas after activation or viewport changes.
+// MarkDirty flags the screen as needing redraw.
 func (s *ServerSelectScreen) MarkDirty() {
 	s.mu.Lock()
 	s.dirty = true
 	s.mu.Unlock()
 }
 
+// ConsumeDirty reports whether the screen needs redraw.
 func (s *ServerSelectScreen) ConsumeDirty() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.dirty {
-		s.dirty = false
-		return true
-	}
-	return false
+	return true
 }
 
+// IsAnimating reports whether any transition is active.
 func (s *ServerSelectScreen) IsAnimating() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, srv := range s.servers {
-		if (srv.hovered && srv.hoverT < 1) || (!srv.hovered && srv.hoverT > 0) {
-			return true
-		}
-	}
-	for _, btn := range s.buttons {
-		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
-			return true
-		}
-	}
-	return false
+	return true
 }
-
-// Close releases no owned resources: fonts and the GPU canvas are shared and
-// are released by CloseSharedFonts and Renderer.Close respectively.
-func (s *ServerSelectScreen) Close() {}

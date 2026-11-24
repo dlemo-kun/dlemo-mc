@@ -39,6 +39,7 @@ func Run() error {
 		WithTitle("dlemo-mc").
 		WithSize(1024, 640).
 		WithMinSize(800, 600).
+		WithContinuousRender(true).
 		WithPowerPreference(gputypes.PowerPreferenceHighPerformance)
 
 	a := gogpu.NewApp(cfg)
@@ -194,7 +195,7 @@ func Run() error {
 	a.OnDraw(func(dc *gogpu.Context) {
 		nav.SetViewport(float64(dc.Width()), float64(dc.Height()))
 		dc.ClearColor(gmath.Hex(0x111520))
-		r.RenderScreen(dc, a.GPUContextProvider(), nav.Current())
+		r.RenderScreen(dc, a.GPUContextProvider(), nav.Current(), nav.Background())
 		a.RequestRedraw()
 	})
 

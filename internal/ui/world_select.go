@@ -6,7 +6,6 @@ import (
 
 	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
 	"github.com/gogpu/gg"
-	"github.com/gogpu/gg/text"
 )
 
 // WorldEntry describes a singleplayer world shown in the world list.
@@ -14,10 +13,6 @@ type WorldEntry struct {
 	Name       string
 	GameMode   string
 	LastPlayed string
-
-	x, y, w, h float64
-	hovered    bool
-	hoverT     float64
 }
 
 // WorldSelectActions defines callbacks triggered from the world selection screen.
@@ -27,88 +22,104 @@ type WorldSelectActions struct {
 	OnBack   func()
 }
 
-// WorldSelectScreen displays the singleplayer world list and controls.
+// WorldSelectScreen displays the singleplayer world list and controls using UI 2.0 modular widgets.
 type WorldSelectScreen struct {
 	mu       sync.Mutex
 	tr       *i18n.Manager
 	w, h     float64
 	worlds   []*WorldEntry
 	selected int
-	buttons  []*TextButton
 	actions  WorldSelectActions
+	theme    *UITheme
 
-	titleFont *FontStack
-	uiFont    *FontStack
-	titleFace text.Face
-	subFace   text.Face
-	nameFace  text.Face
-	metaFace  text.Face
-	btnFace   text.Face
+	// Modular UI 2.0 components
+	scrollView *ScrollView
+	cards      []*CardWidget
+	footerBox  *FlexBox
+	buttons    []*UIButton
+
+	// Center glass panel coordinates
+	panelX, panelY, panelW, panelH float64
 
 	dirty bool
 }
 
 // NewWorldSelectScreen creates a new singleplayer world selection screen.
 func NewWorldSelectScreen(tr *i18n.Manager, worlds []*WorldEntry, actions WorldSelectActions) *WorldSelectScreen {
+	theme := NewUITheme()
+
 	s := &WorldSelectScreen{
 		tr:       tr,
 		worlds:   worlds,
 		selected: 0,
 		actions:  actions,
+		theme:    theme,
 		dirty:    true,
 	}
 	if len(s.worlds) == 0 {
 		s.selected = -1
 	}
 
-	titleFont, uiFont := loadFont()
-
-	s.titleFont = titleFont
-	s.uiFont = uiFont
-
-	if s.titleFont != nil {
-		s.titleFace = s.titleFont.Face(32)
+	// 1. Scrollable world list container
+	s.scrollView = NewScrollView(0, 0)
+	s.cards = make([]*CardWidget, len(worlds))
+	for i, world := range worlds {
+		idx := i
+		wItem := world
+		subtitle := fmt.Sprintf("%s  •  %s", wItem.GameMode, wItem.LastPlayed)
+		card := NewCardWidget(wItem.Name, subtitle, "", i == s.selected, func() {
+			s.selectWorld(idx)
+		})
+		card.NameFace = theme.NameFace
+		card.MetaFace = theme.MetaFace
+		s.cards[i] = card
+		s.scrollView.Add(card)
 	}
-	if s.uiFont != nil {
-		s.subFace = s.uiFont.Face(13)
-		s.nameFace = s.uiFont.Face(16)
-		s.metaFace = s.uiFont.Face(13)
-		s.btnFace = s.uiFont.Face(15)
-	}
 
-	s.buttons = []*TextButton{
-		{
-			Key:   "selectWorld.select",
-			Label: "Play Selected World",
-			OnClick: func() {
-				s.mu.Lock()
-				var target *WorldEntry
-				if s.selected >= 0 && s.selected < len(s.worlds) {
-					target = s.worlds[s.selected]
-				}
-				cb := s.actions.OnPlay
-				s.mu.Unlock()
-				if target != nil && cb != nil {
-					cb(target)
-				}
-			},
-		},
-		{
-			Key:     "selectWorld.create",
-			Label:   "Create New World",
-			OnClick: actions.OnCreate,
-		},
-		{
-			Key:     "gui.back",
-			Label:   "Back",
-			OnClick: actions.OnBack,
-		},
+	// 2. Responsive footer buttons with FlexBox
+	playBtn := NewUIButton(s.resolveText("selectWorld.select", "Play Selected World"), true, func() {
+		s.mu.Lock()
+		var target *WorldEntry
+		if s.selected >= 0 && s.selected < len(s.worlds) {
+			target = s.worlds[s.selected]
+		}
+		cb := s.actions.OnPlay
+		s.mu.Unlock()
+		if target != nil && cb != nil {
+			cb(target)
+		}
+	})
+	playBtn.Key = "selectWorld.select"
+	playBtn.Face = theme.BtnFace
+
+	createBtn := NewUIButton(s.resolveText("selectWorld.create", "Create New World"), false, actions.OnCreate)
+	createBtn.Key = "selectWorld.create"
+	createBtn.Face = theme.BtnFace
+
+	backBtn := NewUIButton(s.resolveText("gui.back", "Back"), false, actions.OnBack)
+	backBtn.Key = "gui.back"
+	backBtn.Face = theme.BtnFace
+
+	s.buttons = []*UIButton{playBtn, createBtn, backBtn}
+	s.footerBox = NewFlexBox(Row, 12, 0)
+	for _, btn := range s.buttons {
+		s.footerBox.Add(btn)
 	}
 
 	return s
 }
 
-// SetViewport recalculates world card and footer button positions.
+func (s *WorldSelectScreen) selectWorld(idx int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.selected = idx
+	for i, card := range s.cards {
+		card.Selected = (i == idx)
+	}
+	s.dirty = true
+}
+
+// SetViewport recalculates panel, scrollview, and footer layout responsively.
 func (s *WorldSelectScreen) SetViewport(w, h float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,6 +127,7 @@ func (s *WorldSelectScreen) SetViewport(w, h float64) {
 		return
 	}
 	s.w, s.h = w, h
+	s.dirty = true
 
 	panelX := 44.0
 	panelW := w - 88.0
@@ -124,138 +136,102 @@ func (s *WorldSelectScreen) SetViewport(w, h float64) {
 		panelX = (w - panelW) / 2
 	}
 
-	cardY := 124.0
-	const cardH = 68.0
-	const cardGap = 10.0
-	for i, world := range s.worlds {
-		world.x = panelX + 16
-		world.y = cardY + float64(i)*(cardH+cardGap)
-		world.w = panelW - 32
-		world.h = cardH
+	panelY := 108.0
+	panelH := h - panelY - 104.0
+	if panelH < 120 {
+		panelH = 120
 	}
 
+	s.panelX, s.panelY, s.panelW, s.panelH = panelX, panelY, panelW, panelH
+
+	// Configure ScrollView bounds inside the glass panel
+	const scrollPad = 14.0
+	s.scrollView.SetBounds(panelX+scrollPad, panelY+scrollPad, panelW-scrollPad*2, panelH-scrollPad*2)
+	s.scrollView.LayoutVertical(68.0, 10.0)
+
+	// Configure footer buttons row
 	const btnH = 42.0
-	const gap = 12.0
 	btnY := h - 44.0 - btnH
-	btnW := (panelW - float64(len(s.buttons)-1)*gap) / float64(len(s.buttons))
-	for i, btn := range s.buttons {
-		btn.X = panelX + float64(i)*(btnW+gap)
-		btn.Y = btnY
-		btn.W = btnW
-		btn.H = btnH
-	}
+	s.footerBox.SetBounds(panelX, btnY, panelW, btnH)
 }
 
-// Update advances hover animations.
+// Update advances smooth scrolling and hover animations.
 func (s *WorldSelectScreen) Update(dt float64) {
-	if dt > 0.05 {
-		dt = 0.05
-	}
-	speed := dt * 10.0
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for _, world := range s.worlds {
-		world.hoverT = approach(world.hoverT, world.hovered, speed)
-	}
-	for _, btn := range s.buttons {
-		btn.HoverT = approach(btn.HoverT, btn.Hovered, speed)
-	}
+	s.scrollView.Update(dt)
+	s.footerBox.Update(dt)
 }
 
-// OnMouseMove updates hover state for world cards and buttons.
+// OnMouseMove updates hover states in the scroll view and footer buttons.
 func (s *WorldSelectScreen) OnMouseMove(x, y float64) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	changed := false
-	for _, world := range s.worlds {
-		h := x >= world.x && x <= world.x+world.w && y >= world.y && y <= world.y+world.h
-		if h != world.hovered {
-			world.hovered = h
-			changed = true
-		}
+	sc := s.scrollView.OnMouseMove(x, y)
+	fc := s.footerBox.OnMouseMove(x, y)
+	if sc || fc {
+		s.dirty = true
+		return true
 	}
-	for _, btn := range s.buttons {
-		h := x >= btn.X && x <= btn.X+btn.W && y >= btn.Y && y <= btn.Y+btn.H
-		if h != btn.Hovered {
-			btn.Hovered = h
-			changed = true
-		}
-	}
-	return changed
+	return false
 }
 
-// OnMousePress selects a world card or triggers a footer button action.
+// OnMousePress handles item selection or footer button clicks.
 func (s *WorldSelectScreen) OnMousePress(x, y float64) {
-	s.OnMouseMove(x, y)
-
-	var clickAction func()
-	s.mu.Lock()
-	for i, world := range s.worlds {
-		if world.hovered {
-			s.selected = i
-			s.mu.Unlock()
-			return
-		}
+	if s.scrollView.OnMousePress(x, y) {
+		return
 	}
-	for _, btn := range s.buttons {
-		if btn.Hovered {
-			clickAction = btn.OnClick
-			break
-		}
-	}
-	s.mu.Unlock()
-
-	if clickAction != nil {
-		clickAction()
-	}
+	_ = s.footerBox.OnMousePress(x, y)
 }
 
-// Draw renders the singleplayer world selection UI.
+// OnMouseScroll forwards wheel events to the smooth scroll container.
+func (s *WorldSelectScreen) OnMouseScroll(deltaY float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.scrollView.ScrollBy(deltaY * 42.0)
+	s.dirty = true
+}
+
+// Draw renders the singleplayer world selection screen.
 func (s *WorldSelectScreen) Draw(cc *gg.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	panelX := 44.0
-	panelW := s.w - 88.0
-	if panelW > 760 {
-		panelW = 760
-		panelX = (s.w - panelW) / 2
-	}
-
-	if s.titleFace != nil {
-		cc.SetFont(s.titleFace)
+	// Screen Header (Title & Subtitle)
+	if s.theme.TitleFace != nil {
+		cc.SetFont(s.theme.TitleFace)
 	}
 	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
-	cc.DrawString(s.resolveText("selectWorld.title", "Select World"), panelX, 66)
+	cc.DrawString(s.resolveText("selectWorld.title", "Select World"), s.panelX, 66)
 
-	if s.subFace != nil {
-		cc.SetFont(s.subFace)
+	if s.theme.SubFace != nil {
+		cc.SetFont(s.theme.SubFace)
 	}
 	cc.SetRGBA(0.75, 0.80, 0.90, 0.85)
-	cc.DrawString(s.resolveText("selectWorld.newWorld", "Create New World"), panelX, 88)
+	cc.DrawString(s.resolveText("selectWorld.newWorld", "Create New World"), s.panelX, 88)
 
-	panelY := 108.0
-	panelH := s.h - panelY - 104.0
-	if panelH > 120 {
+	// Center glass panel container
+	if s.panelH > 100 {
 		cc.SetRGBA(0.06, 0.08, 0.12, 0.65)
-		cc.DrawRoundedRectangle(panelX, panelY, panelW, panelH, 16)
+		cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 		_ = cc.Fill()
 
 		cc.SetRGBA(1, 1, 1, 0.12)
 		cc.SetLineWidth(1)
-		cc.DrawRoundedRectangle(panelX, panelY, panelW, panelH, 16)
+		cc.DrawRoundedRectangle(s.panelX, s.panelY, s.panelW, s.panelH, 16)
 		_ = cc.Stroke()
 	}
 
-	for i, world := range s.worlds {
-		s.drawWorldCard(cc, world, i == s.selected)
-	}
+	// Render scrollable card list
+	s.scrollView.Draw(cc)
 
-	for i, btn := range s.buttons {
-		btn.Label = s.resolveText(btn.Key, btn.Label)
-		drawActionButton(cc, btn, s.btnFace, i == 0)
+	// Refresh localized labels for footer buttons and draw
+	for _, btn := range s.buttons {
+		if btn.Key != "" && s.tr != nil {
+			btn.Label = s.tr.T(btn.Key)
+		}
 	}
+	s.footerBox.Draw(cc)
 }
 
 func (s *WorldSelectScreen) resolveText(key, fallback string) string {
@@ -265,71 +241,22 @@ func (s *WorldSelectScreen) resolveText(key, fallback string) string {
 	return fallback
 }
 
-func (s *WorldSelectScreen) drawWorldCard(cc *gg.Context, world *WorldEntry, selected bool) {
-	t := world.hoverT
-	if selected {
-		cc.SetRGBA(0.14, 0.22, 0.34, 0.86)
-	} else {
-		cc.SetRGBA(lerp(0.09, 0.14, t), lerp(0.11, 0.17, t), lerp(0.16, 0.24, t), lerp(0.72, 0.86, t))
-	}
-	cc.DrawRoundedRectangle(world.x, world.y, world.w, world.h, 12)
-	_ = cc.Fill()
-
-	if selected {
-		cc.SetRGBA(0.45, 0.72, 1.0, 0.75)
-		cc.SetLineWidth(1.5)
-	} else {
-		cc.SetRGBA(1, 1, 1, lerp(0.10, 0.28, t))
-		cc.SetLineWidth(1)
-	}
-	cc.DrawRoundedRectangle(world.x, world.y, world.w, world.h, 12)
-	_ = cc.Stroke()
-
-	if s.nameFace != nil {
-		cc.SetFont(s.nameFace)
-	}
-	cc.SetRGBA(0.96, 0.97, 1.0, 0.96)
-	cc.DrawString(world.Name, world.x+18, world.y+27)
-
-	if s.metaFace != nil {
-		cc.SetFont(s.metaFace)
-	}
-	cc.SetRGBA(0.72, 0.77, 0.87, 0.88)
-	cc.DrawString(fmt.Sprintf("%s  •  %s", world.GameMode, world.LastPlayed), world.x+18, world.y+49)
-}
-
-// Close releases no owned resources: fonts are application-shared resources.
+// Close satisfies the Screen interface.
 func (s *WorldSelectScreen) Close() {}
 
-// MarkDirty invalidates the retained canvas after activation or viewport changes.
+// MarkDirty flags the screen as needing redraw.
 func (s *WorldSelectScreen) MarkDirty() {
 	s.mu.Lock()
 	s.dirty = true
 	s.mu.Unlock()
 }
 
+// ConsumeDirty reports whether the screen needs redraw.
 func (s *WorldSelectScreen) ConsumeDirty() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.dirty {
-		s.dirty = false
-		return true
-	}
-	return false
+	return true
 }
 
+// IsAnimating reports whether any transition is active.
 func (s *WorldSelectScreen) IsAnimating() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, world := range s.worlds {
-		if (world.hovered && world.hoverT < 1) || (!world.hovered && world.hoverT > 0) {
-			return true
-		}
-	}
-	for _, btn := range s.buttons {
-		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
-			return true
-		}
-	}
-	return false
+	return true
 }

@@ -14,49 +14,6 @@ import (
 	"github.com/gogpu/gg/text"
 )
 
-// TextButton represents a rounded web-style button inside the vertical menu stack.
-type TextButton struct {
-	Label   string
-	X, Y    float64
-	W, H    float64
-	Hovered bool
-	HoverT  float64
-	Key     string
-	OnClick func()
-}
-
-// IconButton represents a square textured button inside the bottom-right horizontal bar.
-type IconButton struct {
-	Tooltip string
-	SrcRect *image.Rectangle
-	X, Y    float64
-	Size    float64
-	Hovered bool
-	HoverT  float64
-	Key     string
-	OnClick func()
-}
-
-// TitleMenu holds the layout, assets, and interaction state of the main title screen.
-type TitleMenu struct {
-	Width  float64
-	Height float64
-
-	TitleButtons []*TextButton
-	IconButtons  []*IconButton
-
-	titleFont *FontStack
-	uiFont    *FontStack
-	titleFace text.Face
-	subFace   text.Face
-	btnFace   text.Face
-	tipFace   text.Face
-
-	tr        *i18n.Manager
-	iconAtlas *gg.ImageBuf
-	dirty     bool
-}
-
 // TitleMenuActions defines callbacks triggered when the user clicks menu buttons.
 type TitleMenuActions struct {
 	OnSingleplayer  func()
@@ -69,41 +26,90 @@ type TitleMenuActions struct {
 	OnAccessibility func()
 }
 
-// NewTitleMenu initializes the title menu fonts, custom icon atlas, and button layout.
-func NewTitleMenu(tr *i18n.Manager, actions TitleMenuActions) *TitleMenu {
-	m := &TitleMenu{tr: tr, dirty: true}
-	m.loadFonts()
+// TitleMenu holds the layout, theme, and interaction state of the redesigned main title screen.
+type TitleMenu struct {
+	Width  float64
+	Height float64
 
-	m.TitleButtons = []*TextButton{
-		{Key: "menu.singleplayer", Label: "Singleplayer", OnClick: actions.OnSingleplayer},
-		{Key: "menu.multiplayer", Label: "Multiplayer", OnClick: actions.OnMultiplayer},
-		{Key: "menu.online", Label: "Realms", OnClick: actions.OnRealms},
-		{Key: "options.title", Label: "Options", OnClick: actions.OnOptions},
-		{Key: "menu.quit", Label: "Quit", OnClick: actions.OnQuit},
+	vbox        *FlexBox
+	buttons     []*UIButton
+	hbox        *FlexBox
+	iconButtons []*UIButton
+
+	// Kept for backward compatibility and testing inspection
+	TitleButtons []*UIButton
+	IconButtons  []*UIButton
+
+	theme     *UITheme
+	titleFace text.Face
+	subFace   text.Face
+
+	tr        *i18n.Manager
+	iconAtlas *gg.ImageBuf
+	dirty     bool
+}
+
+// NewTitleMenu initializes the title menu with unified UITheme, FlexBox layout, and UIButton components.
+func NewTitleMenu(tr *i18n.Manager, actions TitleMenuActions) *TitleMenu {
+	theme := NewUITheme()
+
+	m := &TitleMenu{
+		tr:    tr,
+		theme: theme,
+		dirty: true,
 	}
 
+	if theme.TitleFont != nil {
+		m.titleFace = theme.TitleFont.Face(48)
+	}
+	if theme.UIFont != nil {
+		m.subFace = theme.UIFont.Face(24)
+	}
+
+	// 1. Unified Text Action Buttons in bottom-left VBox
+	m.buttons = []*UIButton{
+		{Key: "menu.singleplayer", Label: "Singleplayer", AlignLeft: true, Face: theme.BtnFace, OnClick: actions.OnSingleplayer},
+		{Key: "menu.multiplayer", Label: "Multiplayer", AlignLeft: true, Face: theme.BtnFace, OnClick: actions.OnMultiplayer},
+		{Key: "menu.online", Label: "Realms", AlignLeft: true, Face: theme.BtnFace, OnClick: actions.OnRealms},
+		{Key: "options.title", Label: "Options", AlignLeft: true, Face: theme.BtnFace, OnClick: actions.OnOptions},
+		{Key: "menu.quit", Label: "Quit", AlignLeft: true, Face: theme.BtnFace, OnClick: actions.OnQuit},
+	}
+	m.TitleButtons = m.buttons
+
+	m.vbox = NewFlexBox(Column, 10, 0)
+	for _, btn := range m.buttons {
+		m.vbox.Add(btn)
+	}
+
+	// 2. Bottom-right HBox for Icon Buttons
 	iconsDir := ""
 	if base, err := config.Dir(); err == nil {
 		iconsDir = filepath.Join(base, "assets/icons/ui")
 	}
 
 	atlas, rects := buildIconAtlas([]string{
-		iconsDir + "/language.png",
-		iconsDir + "/friends.png",
-		iconsDir + "/accessibility.png",
+		filepath.Join(iconsDir, "language.png"),
+		filepath.Join(iconsDir, "friends.png"),
+		filepath.Join(iconsDir, "accessibility.png"),
 	})
 	m.iconAtlas = atlas
 
-	m.IconButtons = []*IconButton{
-		{Key: "options.language.tooltip", Tooltip: "Language", SrcRect: rects[0], OnClick: actions.OnLanguage},
-		{Key: "gui.friends.open.tooltip", Tooltip: "Friends", SrcRect: rects[1], OnClick: actions.OnFriends},
-		{Key: "options.accessibility.tooltip", Tooltip: "Accessibility", SrcRect: rects[2], OnClick: actions.OnAccessibility},
+	m.iconButtons = []*UIButton{
+		{Key: "options.language.tooltip", Tooltip: "Language", SrcRect: rects[0], IconAtlas: atlas, TipFace: theme.TipFace, Radius: 12, OnClick: actions.OnLanguage},
+		{Key: "gui.friends.open.tooltip", Tooltip: "Friends", SrcRect: rects[1], IconAtlas: atlas, TipFace: theme.TipFace, Radius: 12, OnClick: actions.OnFriends},
+		{Key: "options.accessibility.tooltip", Tooltip: "Accessibility", SrcRect: rects[2], IconAtlas: atlas, TipFace: theme.TipFace, Radius: 12, OnClick: actions.OnAccessibility},
+	}
+	m.IconButtons = m.iconButtons
+
+	m.hbox = NewFlexBox(Row, 10, 0)
+	for _, btn := range m.iconButtons {
+		m.hbox.Add(btn)
 	}
 
 	return m
 }
 
-// SetViewport recalculates button positions whenever the window size changes.
+// SetViewport recalculates menu layout responsively when the window size changes.
 func (m *TitleMenu) SetViewport(w, h float64) {
 	if w <= 0 || h <= 0 || (m.Width == w && m.Height == h) {
 		return
@@ -122,125 +128,60 @@ func (m *TitleMenu) SetViewport(w, h float64) {
 		hboxGap   = 10.0
 	)
 
-	// Bottom-left VBox (Singleplayer .. Quit)
-	totalVBoxH := float64(len(m.TitleButtons))*btnHeight + float64(len(m.TitleButtons)-1)*vboxGap
+	// Bottom-left VBox layout
+	totalVBoxH := float64(len(m.buttons))*btnHeight + float64(len(m.buttons)-1)*vboxGap
 	startY := h - marginY - totalVBoxH
-	for i, btn := range m.TitleButtons {
-		btn.X = marginX
-		btn.Y = startY + float64(i)*(btnHeight+vboxGap)
-		btn.W = btnWidth
-		btn.H = btnHeight
-	}
+	m.vbox.SetBounds(marginX, startY, btnWidth, totalVBoxH)
 
-	// Bottom-right HBox (Language, Friends, Accessibility)
-	totalHBoxW := float64(len(m.IconButtons))*iconSize + float64(len(m.IconButtons)-1)*hboxGap
+	// Bottom-right HBox layout
+	totalHBoxW := float64(len(m.iconButtons))*iconSize + float64(len(m.iconButtons)-1)*hboxGap
 	startX := w - marginX - totalHBoxW
 	iconY := h - marginY - iconSize
-	for i, btn := range m.IconButtons {
-		btn.X = startX + float64(i)*(iconSize+hboxGap)
-		btn.Y = iconY
-		btn.Size = iconSize
-	}
+	m.hbox.SetBounds(startX, iconY, totalHBoxW, iconSize)
 }
 
-// ConsumeDirty reports whether the 2D menu needs to be re-rendered and clears the flag.
-func (m *TitleMenu) ConsumeDirty() bool {
-	if !m.dirty {
-		return false
-	}
-	m.dirty = false
-	return true
+// Update advances hover transitions smoothly across all widgets.
+func (m *TitleMenu) Update(dt float64) {
+	m.vbox.Update(dt)
+	m.hbox.Update(dt)
 }
 
-// IsAnimating reports whether any button hover transition is still running.
-func (m *TitleMenu) IsAnimating() bool {
-	for _, btn := range m.TitleButtons {
-		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
-			return true
-		}
-	}
-	for _, btn := range m.IconButtons {
-		if (btn.Hovered && btn.HoverT < 1) || (!btn.Hovered && btn.HoverT > 0) {
-			return true
-		}
+// OnMouseMove updates hover state across all widgets.
+func (m *TitleMenu) OnMouseMove(x, y float64) bool {
+	vChanged := m.vbox.OnMouseMove(x, y)
+	hChanged := m.hbox.OnMouseMove(x, y)
+	if vChanged || hChanged {
+		m.dirty = true
+		return true
 	}
 	return false
 }
 
-// Update advances smooth CSS-like hover transitions.
-func (m *TitleMenu) Update(dt float64) {
-	if dt > 0.05 {
-		dt = 0.05
-	}
-	speed := dt * 10.0
-	for _, btn := range m.TitleButtons {
-		next := approach(btn.HoverT, btn.Hovered, speed)
-		if next != btn.HoverT {
-			btn.HoverT = next
-			m.dirty = true
-		}
-	}
-	for _, btn := range m.IconButtons {
-		next := approach(btn.HoverT, btn.Hovered, speed)
-		if next != btn.HoverT {
-			btn.HoverT = next
-			m.dirty = true
-		}
-	}
-}
-
-// OnMouseMove updates hover states and reports whether any button state changed.
-func (m *TitleMenu) OnMouseMove(x, y float64) bool {
-	changed := false
-	for _, btn := range m.TitleButtons {
-		hovered := x >= btn.X && x <= btn.X+btn.W && y >= btn.Y && y <= btn.Y+btn.H
-		if hovered != btn.Hovered {
-			btn.Hovered = hovered
-			changed = true
-		}
-	}
-	for _, btn := range m.IconButtons {
-		hovered := x >= btn.X && x <= btn.X+btn.Size && y >= btn.Y && y <= btn.Y+btn.Size
-		if hovered != btn.Hovered {
-			btn.Hovered = hovered
-			changed = true
-		}
-	}
-	if changed {
-		m.dirty = true
-	}
-	return changed
-}
-
-// OnMousePress triggers the clicked button callback, if any.
+// OnMousePress handles click events on widgets.
 func (m *TitleMenu) OnMousePress(x, y float64) {
-	m.OnMouseMove(x, y)
-	for _, btn := range m.TitleButtons {
-		if btn.Hovered && btn.OnClick != nil {
-			btn.OnClick()
-			return
-		}
+	if m.vbox.OnMousePress(x, y) {
+		return
 	}
-	for _, btn := range m.IconButtons {
-		if btn.Hovered && btn.OnClick != nil {
-			btn.OnClick()
-			return
-		}
-	}
+	_ = m.hbox.OnMousePress(x, y)
 }
 
-// Draw renders the entire title menu onto the provided 2D context.
+// Draw renders the title menu, header, and flex containers onto the canvas.
 func (m *TitleMenu) Draw(cc *gg.Context) {
-	m.drawHeader(cc)
-	m.drawVBoxButtons(cc)
-	m.drawHBoxIconButtons(cc)
-}
-
-func (m *TitleMenu) resolveText(key, fallback string) string {
-	if m.tr != nil && key != "" {
-		return m.tr.T(key)
+	// Dynamically update translated strings for labels and tooltips
+	for _, btn := range m.buttons {
+		if btn.Key != "" && m.tr != nil {
+			btn.Label = m.tr.T(btn.Key)
+		}
 	}
-	return fallback
+	for _, btn := range m.iconButtons {
+		if btn.Key != "" && m.tr != nil {
+			btn.Tooltip = m.tr.T(btn.Key)
+		}
+	}
+
+	m.drawHeader(cc)
+	m.vbox.Draw(cc)
+	m.hbox.Draw(cc)
 }
 
 func (m *TitleMenu) drawHeader(cc *gg.Context) {
@@ -266,119 +207,22 @@ func (m *TitleMenu) drawHeader(cc *gg.Context) {
 	cc.DrawString("Go Edition", x, y+24)
 }
 
-func (m *TitleMenu) drawVBoxButtons(cc *gg.Context) {
-	if m.btnFace != nil {
-		cc.SetFont(m.btnFace)
-	}
-
-	for _, btn := range m.TitleButtons {
-		t := btn.HoverT
-		const radius = 10.0
-
-		// Web-style solid/translucent card background
-		r := lerp(0.08, 0.16, t)
-		g := lerp(0.09, 0.19, t)
-		b := lerp(0.13, 0.27, t)
-		a := lerp(0.74, 0.90, t)
-		cc.SetRGBA(r, g, b, a)
-		cc.DrawRoundedRectangle(btn.X, btn.Y, btn.W, btn.H, radius)
-		_ = cc.Fill()
-
-		// 1px border highlight on hover
-		borderA := lerp(0.14, 0.42, t)
-		cc.SetRGBA(1, 1, 1, borderA)
-		cc.SetLineWidth(1)
-		cc.DrawRoundedRectangle(btn.X, btn.Y, btn.W, btn.H, radius)
-		_ = cc.Stroke()
-
-		// Left-aligned text with subtle hover slide
-		textX := btn.X + 18 + t*4
-		textY := btn.Y + btn.H/2
-		cc.SetRGBA(0.95, 0.96, 0.99, lerp(0.86, 1.0, t))
-		cc.DrawStringAnchored(m.resolveText(btn.Key, btn.Label), textX, textY, 0.0, 0.5)
-	}
-}
-
-func (m *TitleMenu) drawHBoxIconButtons(cc *gg.Context) {
-	for _, btn := range m.IconButtons {
-		t := btn.HoverT
-		const radius = 12.0
-
-		cc.SetRGBA(lerp(0.08, 0.16, t), lerp(0.09, 0.19, t), lerp(0.13, 0.27, t), lerp(0.74, 0.90, t))
-		cc.DrawRoundedRectangle(btn.X, btn.Y, btn.Size, btn.Size, radius)
-		_ = cc.Fill()
-
-		cc.SetRGBA(1, 1, 1, lerp(0.14, 0.42, t))
-		cc.SetLineWidth(1)
-		cc.DrawRoundedRectangle(btn.X, btn.Y, btn.Size, btn.Size, radius)
-		_ = cc.Stroke()
-
-		const pad = 10.0
-		iconBox := btn.Size - pad*2
-		if m.iconAtlas != nil && btn.SrcRect != nil {
-			cc.DrawImageEx(m.iconAtlas, gg.DrawImageOptions{
-				X:             btn.X + pad,
-				Y:             btn.Y + pad,
-				DstWidth:      iconBox,
-				DstHeight:     iconBox,
-				SrcRect:       btn.SrcRect,
-				Interpolation: gg.InterpBicubic,
-				Opacity:       lerp(0.85, 1.0, t),
-				BlendMode:     gg.BlendNormal,
-			})
-		} else {
-			// Fallback placeholder until custom PNG textures are added
-			cc.SetRGBA(0.85, 0.88, 0.95, lerp(0.45, 0.85, t))
-			cc.DrawRoundedRectangle(btn.X+pad+2, btn.Y+pad+2, iconBox-4, iconBox-4, 5)
-			_ = cc.Stroke()
-		}
-
-		if t > 0.05 {
-			m.drawTooltip(cc, m.resolveText(btn.Key, btn.Tooltip), btn.X+btn.Size/2, btn.Y-10, t)
-		}
-	}
-}
-
-func (m *TitleMenu) drawTooltip(cc *gg.Context, label string, cx, bottomY, alpha float64) {
-	if m.tipFace != nil {
-		cc.SetFont(m.tipFace)
-	}
-	tw, _ := cc.MeasureString(label)
-	w := tw + 18
-	const h = 24.0
-	x := cx - w/2
-	y := bottomY - h
-
-	cc.SetRGBA(0.06, 0.07, 0.10, 0.88*alpha)
-	cc.DrawRoundedRectangle(x, y, w, h, 7)
-	_ = cc.Fill()
-
-	cc.SetRGBA(1, 1, 1, 0.18*alpha)
-	cc.SetLineWidth(1)
-	cc.DrawRoundedRectangle(x, y, w, h, 7)
-	_ = cc.Stroke()
-
-	cc.SetRGBA(0.95, 0.96, 0.99, alpha)
-	cc.DrawStringAnchored(label, cx, y+h/2, 0.5, 0.5)
-}
-
-// Close satisfies the Screen interface. Shared fonts stay cached until CloseSharedFonts.
+// Close satisfies the Screen interface.
 func (m *TitleMenu) Close() {}
 
-func (m *TitleMenu) loadFonts() {
-	titleFont, uiFont := loadFont()
+// MarkDirty flags the screen as needing redraw.
+func (m *TitleMenu) MarkDirty() {
+	m.dirty = true
+}
 
-	m.titleFont = titleFont
-	m.uiFont = uiFont
+// ConsumeDirty reports whether the screen needs redraw.
+func (m *TitleMenu) ConsumeDirty() bool {
+	return true
+}
 
-	if m.titleFont != nil {
-		m.titleFace = m.titleFont.Face(48)
-	}
-	if m.uiFont != nil {
-		m.subFace = m.uiFont.Face(24)
-		m.btnFace = m.uiFont.Face(16)
-		m.tipFace = m.uiFont.Face(12)
-	}
+// IsAnimating reports whether any transition is running.
+func (m *TitleMenu) IsAnimating() bool {
+	return true
 }
 
 func buildIconAtlas(paths []string) (*gg.ImageBuf, []*image.Rectangle) {
@@ -426,28 +270,4 @@ func buildIconAtlas(paths []string) (*gg.ImageBuf, []*image.Rectangle) {
 	}
 
 	return gg.ImageBufFromImage(atlas), rects
-}
-
-func approach(cur float64, target bool, delta float64) float64 {
-	if target {
-		cur += delta
-		if cur > 1 {
-			return 1
-		}
-		return cur
-	}
-	cur -= delta
-	if cur < 0 {
-		return 0
-	}
-	return cur
-}
-
-func lerp(a, b, t float64) float64 {
-	return a + (b-a)*t
-}
-
-// MarkDirty forces a complete redraw after activation or a viewport change.
-func (m *TitleMenu) MarkDirty() {
-	m.dirty = true
 }
