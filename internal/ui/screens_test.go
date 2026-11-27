@@ -1,10 +1,14 @@
 package ui
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
+	"github.com/dlemo-kun/dlemo-mc/internal/splash"
 	"github.com/gogpu/gg"
 )
 
@@ -276,4 +280,69 @@ func TestLanguageSelectScreen(t *testing.T) {
 	cc := gg.NewContext(1024, 768)
 	screen.Draw(cc)
 	screen.Close()
+}
+
+func TestTitleMenuSplashAnimation(t *testing.T) {
+	tmp := t.TempDir()
+	cacheDir := filepath.Join(tmp, "assets")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cacheDir, "splashes.txt"), []byte("Alpha Splash!\nBeta Splash!\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, time.May, 12, 10, 0, 0, 0, time.Local)
+	sm := splash.NewManagerWithConfig(cacheDir, "", func() time.Time { return now })
+
+	tr := i18n.NewManager("en_us")
+	menu := NewTitleMenu(tr, TitleMenuActions{})
+	menu.SetViewport(1024, 640)
+	menu.SetSplashManager(sm)
+
+	first := menu.splashText
+	if first == "" {
+		t.Fatal("expected initial splash text")
+	}
+
+	// Fade in phase (0 -> 0.6s)
+	menu.Update(0.3)
+	if menu.splashAlpha <= 0 || menu.splashAlpha >= 1 {
+		t.Errorf("expected mid fade-in alpha between 0 and 1, got %f", menu.splashAlpha)
+	}
+	menu.Update(0.5)
+	if menu.splashAlpha != 1.0 {
+		t.Errorf("expected full alpha 1.0 after fade-in, got %f", menu.splashAlpha)
+	}
+
+	// Fade out phase (29.4s -> 30.0s)
+	menu.Update(28.9) // elapsed = 29.7s
+	if menu.splashAlpha <= 0 || menu.splashAlpha >= 1 {
+		t.Errorf("expected mid fade-out alpha between 0 and 1 at 29.7s, got %f", menu.splashAlpha)
+	}
+
+	// Cross 30s boundary: text should rotate to the other splash and start fading in
+	menu.Update(0.4) // elapsed = 0.1s of next cycle
+	if menu.splashText == first {
+		t.Errorf("expected splash text to change after 30s, still %q", menu.splashText)
+	}
+	if menu.splashAlpha <= 0 || menu.splashAlpha >= 1 {
+		t.Errorf("expected new splash fading in, got alpha=%f", menu.splashAlpha)
+	}
+
+	// Draw check with wrapped long splash
+	menu.Update(0.6)
+	cc := gg.NewContext(1024, 640)
+	menu.Draw(cc)
+
+	// Switch clock to a special date (Dec 25) and ensure special message stays all day
+	now = time.Date(2026, time.December, 25, 15, 0, 0, 0, time.Local)
+	menu.Update(1.0)
+	if menu.splashText != "Merry Christmas everyone!" || !menu.splashSpecial {
+		t.Errorf("expected Christmas splash on Dec 25, got %q (special=%v)", menu.splashText, menu.splashSpecial)
+	}
+	menu.Update(35.0)
+	if menu.splashText != "Merry Christmas everyone!" || menu.splashAlpha != 1.0 {
+		t.Errorf("expected special splash to persist all day at alpha 1.0, got %q (alpha=%f)", menu.splashText, menu.splashAlpha)
+	}
 }

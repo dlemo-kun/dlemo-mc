@@ -31,7 +31,7 @@ jobs:
         env:
           GOOS: linux
           GOARCH: amd64
-        run: go build -ldflags="-H=windowsgui" -o dist/dlemo-mc-linux-amd64 cmd/client/main.go 
+        run: go build -o dist/dlemo-mc-linux-amd64 cmd/client/main.go 
 
       - name: Create GitHub Release and upload assets
         uses: softprops/action-gh-release@v2

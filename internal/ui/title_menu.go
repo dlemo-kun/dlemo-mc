@@ -5,13 +5,21 @@ import (
 	"image/draw"
 	_ "image/png"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/dlemo-kun/dlemo-mc/internal/config"
 	"github.com/dlemo-kun/dlemo-mc/internal/i18n"
+	"github.com/dlemo-kun/dlemo-mc/internal/splash"
 	"github.com/gogpu/gg"
 	"github.com/gogpu/gg/text"
+)
+
+const (
+	splashCycleDuration = 30.0
+	splashFadeDuration  = 0.6
 )
 
 // TitleMenuActions defines callbacks triggered when the user clicks menu buttons.
@@ -40,13 +48,19 @@ type TitleMenu struct {
 	TitleButtons []*UIButton
 	IconButtons  []*UIButton
 
-	theme     *UITheme
-	titleFace text.Face
-	subFace   text.Face
+	theme      *UITheme
+	titleFace  text.Face
+	subFace    text.Face
+	splashFace text.Face
 
-	tr        *i18n.Manager
-	iconAtlas *gg.ImageBuf
-	dirty     bool
+	tr            *i18n.Manager
+	splashMgr     *splash.Manager
+	splashText    string
+	splashSpecial bool
+	splashElapsed float64
+	splashAlpha   float64
+	iconAtlas     *gg.ImageBuf
+	dirty         bool
 }
 
 // NewTitleMenu initializes the title menu with unified UITheme, FlexBox layout, and UIButton components.
@@ -61,9 +75,13 @@ func NewTitleMenu(tr *i18n.Manager, actions TitleMenuActions) *TitleMenu {
 
 	if theme.TitleFont != nil {
 		m.titleFace = theme.TitleFont.Face(48)
+		m.splashFace = theme.TitleFont.Face(18)
 	}
 	if theme.UIFont != nil {
 		m.subFace = theme.UIFont.Face(24)
+		if m.splashFace == nil {
+			m.splashFace = theme.UIFont.Face(18)
+		}
 	}
 
 	// 1. Unified Text Action Buttons in bottom-left VBox
@@ -106,7 +124,22 @@ func NewTitleMenu(tr *i18n.Manager, actions TitleMenuActions) *TitleMenu {
 		m.hbox.Add(btn)
 	}
 
+	m.SetSplashManager(splash.NewManager())
+
 	return m
+}
+
+// SetSplashManager replaces the active splash manager and initializes the first splash text.
+func (m *TitleMenu) SetSplashManager(sm *splash.Manager) {
+	m.splashMgr = sm
+	m.splashElapsed = 0
+	m.splashAlpha = 0
+	if sm == nil {
+		m.splashText = ""
+		m.splashSpecial = false
+		return
+	}
+	m.splashText, m.splashSpecial = sm.Current("")
 }
 
 // SetViewport recalculates menu layout responsively when the window size changes.
@@ -140,10 +173,11 @@ func (m *TitleMenu) SetViewport(w, h float64) {
 	m.hbox.SetBounds(startX, iconY, totalHBoxW, iconSize)
 }
 
-// Update advances hover transitions smoothly across all widgets.
+// Update advances hover transitions and the splash fade/rotation animation.
 func (m *TitleMenu) Update(dt float64) {
 	m.vbox.Update(dt)
 	m.hbox.Update(dt)
+	m.updateSplash(dt)
 }
 
 // OnMouseMove updates hover state across all widgets.
@@ -180,6 +214,7 @@ func (m *TitleMenu) Draw(cc *gg.Context) {
 	}
 
 	m.drawHeader(cc)
+	m.drawSplash(cc)
 	m.vbox.Draw(cc)
 	m.hbox.Draw(cc)
 }
@@ -205,6 +240,119 @@ func (m *TitleMenu) drawHeader(cc *gg.Context) {
 	cc.DrawString("Go Edition", x+1, y+25)
 	cc.SetRGBA(0.85, 0.88, 0.94, 0.90)
 	cc.DrawString("Go Edition", x, y+24)
+}
+
+func (m *TitleMenu) updateSplash(dt float64) {
+	if m.splashMgr == nil || dt <= 0 {
+		return
+	}
+
+	if specialText, isSpecial := m.splashMgr.CurrentSpecial(); isSpecial {
+		if !m.splashSpecial || m.splashText != specialText {
+			m.splashText = specialText
+			m.splashSpecial = true
+			m.splashElapsed = 0
+		}
+		m.splashElapsed += dt
+		if m.splashElapsed >= splashFadeDuration {
+			m.splashElapsed = splashFadeDuration
+			m.splashAlpha = 1.0
+		} else {
+			m.splashAlpha = smoothstep01(m.splashElapsed / splashFadeDuration)
+		}
+		return
+	}
+
+	if m.splashSpecial {
+		m.splashSpecial = false
+		m.splashText, _ = m.splashMgr.Current(m.splashText)
+		m.splashElapsed = 0
+	}
+
+	m.splashElapsed += dt
+	for m.splashElapsed >= splashCycleDuration {
+		m.splashElapsed -= splashCycleDuration
+		m.splashText, _ = m.splashMgr.Current(m.splashText)
+	}
+
+	switch {
+	case m.splashElapsed < splashFadeDuration:
+		m.splashAlpha = smoothstep01(m.splashElapsed / splashFadeDuration)
+	case m.splashElapsed > splashCycleDuration-splashFadeDuration:
+		m.splashAlpha = smoothstep01((splashCycleDuration - m.splashElapsed) / splashFadeDuration)
+	default:
+		m.splashAlpha = 1.0
+	}
+}
+
+func (m *TitleMenu) drawSplash(cc *gg.Context) {
+	if m.splashText == "" || m.splashAlpha <= 0.001 || m.Width <= 0 {
+		return
+	}
+
+	if m.splashFace != nil {
+		cc.SetFont(m.splashFace)
+	}
+
+	const marginX = 44.0
+	const centerY = 76.0
+	const lineHeight = 22.0
+
+	anchorX := m.Width - marginX
+	maxW := math.Max(180.0, m.Width-360.0)
+	lines := wrapSplashLines(cc, m.splashText, maxW)
+	if len(lines) == 0 {
+		return
+	}
+
+	startY := centerY - float64(len(lines)-1)*lineHeight/2.0
+	alpha := m.splashAlpha
+	for i, line := range lines {
+		ly := startY + float64(i)*lineHeight
+		cc.SetRGBA(0, 0, 0, 0.55*alpha)
+		cc.DrawStringAnchored(line, anchorX+1.5, ly+2.0, 1.0, 0.5)
+		cc.SetRGBA(1.0, 0.94, 0.22, 0.98*alpha)
+		cc.DrawStringAnchored(line, anchorX, ly, 1.0, 0.5)
+	}
+}
+
+func wrapSplashLines(cc *gg.Context, text string, maxW float64) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if tw, _ := cc.MeasureString(text); tw <= maxW {
+		return []string{text}
+	}
+
+	words := strings.Fields(text)
+	if len(words) <= 1 {
+		return []string{text}
+	}
+
+	var lines []string
+	cur := words[0]
+	for _, w := range words[1:] {
+		candidate := cur + " " + w
+		if tw, _ := cc.MeasureString(candidate); tw <= maxW {
+			cur = candidate
+			continue
+		}
+		lines = append(lines, cur)
+		cur = w
+	}
+	lines = append(lines, cur)
+	return lines
+}
+
+func smoothstep01(t float64) float64 {
+	if t <= 0 {
+		return 0
+	}
+	if t >= 1 {
+		return 1
+	}
+	return t * t * (3.0 - 2.0*t)
 }
 
 // Close satisfies the Screen interface.
